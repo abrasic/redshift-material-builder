@@ -26,7 +26,7 @@ You can either enter your maps manually based on their texture type, or you can 
  * When using normal maps, this creates a bump map supporting the [type of normal map](https://help.maxon.net/r3d/blender/en-us/index.html#html/Bump+Map.html#BumpMap-InputMapType) you are using.
 
 ### Flip Scale
-  * When enabled, it will use a normal scale to -1 instead of default 1.
+  * When enabled, it will use a normal scale of -1 instead of default 1.
 
 ### Alpha Input
   * When using alphas, this creates a sprite node supporting the [type of alpha map](https://help.maxon.net/r3d/blender/en-us/index.html#html/Sprite+Node.html#SpriteNode-OpacityCalculation) you'll be using.
