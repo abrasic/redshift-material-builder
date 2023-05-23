@@ -319,7 +319,7 @@ class RMB_build(bpy.types.Operator):
                 color_correct = create_node('rsRSColorCorrectionShaderNode', origin[0]-coloffset, origin[1]) # Create node
                 coloffset +=400
                 
-            mat.node_tree.nodes["StandardMaterial"].inputs[1].default_value = False # Open RS Base Dropdown
+            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
             base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]) # Create node
             
             tex = load_file(bpy.path.abspath(props.dir_color)) # Load texture to file
@@ -345,7 +345,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE AO
         if props.dir_ao:
-            mat.node_tree.nodes["StandardMaterial"].inputs[1].default_value = False # Open RS Base Dropdown
+            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
             offset = -400
             
             ao = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]+400) # Create node
@@ -369,7 +369,7 @@ class RMB_build(bpy.types.Operator):
                 
         # CREATE METALLIC
         if props.dir_metallic:
-            mat.node_tree.nodes["StandardMaterial"].inputs[1].default_value = False # Open RS Base Dropdown
+            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
             metalness = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -385,7 +385,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE SPECULAR
         if props.dir_specular:
-            mat.node_tree.nodes["StandardMaterial"].inputs[7].default_value = False # Open RS Reflection Dropdown
+            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
             specular = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -401,7 +401,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE GLOSS
         if props.dir_gloss and not props.dir_rough: # Gloss and rough maps cannot be used at the same time. If a rough map is supplied, roughness will be used instead.
-            mat.node_tree.nodes["StandardMaterial"].inputs[7].default_value = False # Open RS Reflection Dropdown
+            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
             gloss_invert = create_node('rsRSMathInvColorShaderNode', origin[0]-400, origin[1])
             gloss = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
@@ -419,7 +419,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE ROUGH
         if props.dir_rough:
-            mat.node_tree.nodes["StandardMaterial"].inputs[7].default_value = False # Open RS Reflection Dropdown
+            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
             rough = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -435,7 +435,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE TRANSMISSION
         if props.dir_transmission:
-            mat.node_tree.nodes["StandardMaterial"].inputs[15].default_value = False # Open RS Transmission Dropdown
+            rsMaterial.inputs[15].default_value = False # Open RS Transmission Dropdown
             transmission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -451,7 +451,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE SSS
         if props.dir_sss:
-            mat.node_tree.nodes["StandardMaterial"].inputs[25].default_value = False # Open RS Subsurface Dropdown
+            rsMaterial.inputs[25].default_value = False # Open RS Subsurface Dropdown
             sss = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -469,7 +469,7 @@ class RMB_build(bpy.types.Operator):
         if props.dir_normal:
             bpy.context.active_object.redshift.skipTangents = False
             bpy.ops.object.shade_smooth()
-            mat.node_tree.nodes["StandardMaterial"].inputs[54].default_value = False # Open RS Geometry Dropdown
+            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
             rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
             normal = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
@@ -493,7 +493,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE BUMP
         if props.dir_bump:
-            mat.node_tree.nodes["StandardMaterial"].inputs[54].default_value = False # Open RS Geometry Dropdown
+            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
             rs_bump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
             bump = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1]) # Create node
             
@@ -541,7 +541,7 @@ class RMB_build(bpy.types.Operator):
 
         # CREATE EMISSION
         if props.dir_emission:
-            mat.node_tree.nodes["StandardMaterial"].inputs[51].default_value = False # Open RS Emission Dropdown
+            rsMaterial.inputs[51].default_value = False # Open RS Emission Dropdown
             emission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
@@ -560,7 +560,7 @@ class RMB_build(bpy.types.Operator):
     
         # CREATE DISPLACEMENT
         if props.dir_displacement:
-            mat.node_tree.nodes["StandardMaterial"].inputs[54].default_value = False # Open RS Geometry Dropdown
+            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
             rs_disp = create_node('rsDisplacementShaderNode', origin[0], origin[1])
             displacement = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
