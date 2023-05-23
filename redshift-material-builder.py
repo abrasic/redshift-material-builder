@@ -3,6 +3,7 @@ from re import (search, IGNORECASE)
 
 from bpy.props import (
     EnumProperty,
+    FloatProperty,
     BoolProperty,
     StringProperty,
 )
