@@ -113,33 +113,49 @@ class RMB_props(bpy.types.PropertyGroup):
     ## Settings
 
     scalar_node: BoolProperty(
-        name="Use Vector Scale",
-        description="When enabled, a Vector input will be connected to all texture scales. This is useful for scaling all textures at once if you're using a PBR material",
+        name="Add Vector for Texture Scale",
+        description="When enabled, a Vector input will be connected to all texture scales. This is useful for scaling all textures at once if your PBR material appears too big or too small",
         default=False
+    )
+    
+    image_node: BoolProperty(
+        name="Add Image Texture Node",
+        description="When enabled, this will add an Image Texture node to the side of your node tree for your color texture. Without it, your material will appear white in the viewport",
+        default=True
+    )
+    
+    correct_node: BoolProperty(
+        name="Add rsColorCorrect for Color",
+        description="When enabled, this will connect your color texture thru an rsColorCorrect node",
+        default=True
     )
     
     normal_type: EnumProperty(
         name="Normal Input",
-        description="Sets the RS Bump node to this input type for its normal maps",
-        items=[
-                ('1', "Tangent-Space", "",),
-                ('2', "Object-Space", ""),
-               ]
+        description="Sets the RS Bump node to this input type for its normal maps. This also affects displacement map type, if used",
+        items=[('1', "Tangent-Space", "",),('2', "Object-Space", ""),],
+        default=0
     )
     
     alpha_type: EnumProperty(
         name="Alpha Input",
         description="Sets the Sprite node to this input type for its alpha maps",
-        items=[
-                ('0', "From Color Intensity", "",),
-                ('1', "From Alpha", ""),
-               ]
+        items=[('0', "From Color Intensity", "",),('1', "From Alpha", ""),],
+        default=1
     )
     
     normal_flip: BoolProperty(
-        name="Flip Scale",
-        description="-1 will be used for height scale instead of 1",
+        name="Flip Normal Scale",
+        description="-1 will be used for normal scale instead of 1",
         default=False
+    )
+    
+    displacement_scale: FloatProperty(
+        name="Displacement Scale",
+        description="Sets the value of displacement scale, if used",
+        default=0.05,
+        soft_min=-2,
+        soft_max=2
     )
         
     base_color: StringProperty(
@@ -197,6 +213,15 @@ class RMB_props(bpy.types.PropertyGroup):
     displacement: StringProperty(
         name='Displacement',
         default='disp displacement',)
+        
+    delete_before_build: BoolProperty(
+        name="Delete Nodes Before Build",
+        description="When enabled, this will delete previously existing nodes for your active material while building",
+        default=False
+    )
+
+def dprint(text):
+    print('\x1b[7;36;40m' + '[RMB]' + '\x1b[0m ' + text)
 
 def rsEnabled():
     for addon in bpy.context.preferences.addons:
@@ -230,6 +255,7 @@ def updateList():
     
 def create_node(id, x=0, y=0):
     """Creates a node for active material"""
+    dprint("Creating "+ str(id) + "...")
     mat = bpy.context.active_object.active_material
     nodes = mat.node_tree.nodes
     node = nodes.new(id)
@@ -248,9 +274,11 @@ def load_file(path):
     """Loads an image file. If it's already used in the blender file, use it instead of loading it again."""
     for image in bpy.data.images:
         if bpy.path.abspath(image.filepath) == path:
+            dprint("Texture " + str(image.name) + " already loaded in file. Using it instead...")
             return image
         
     tex = bpy.data.images.load(path)
+    dprint("Texture " + str(path) + "loaded")
     return tex
     
 class RMB_build(bpy.types.Operator):
@@ -265,30 +293,51 @@ class RMB_build(bpy.types.Operator):
         
         props = context.scene.RMB
         
+        # DELETE ALL NODES
+        if props.delete_before_build:
+            bpy.ops.node.select_all(action='SELECT')
+            bpy.ops.node.delete()
+
+        
         # CREATE STANDARD MATERIAL
         rsMaterial = create_node("rsStandardMaterialShaderNode", origin[0], origin[1])
         
         # CREATE VECTOR SCALE
         if props.scalar_node:
-            matVector = create_node("rsRSVectorMakerShaderNode", origin[0]-1300, origin[1])
+            dprint("Creating Standard Material...")
+            matVector = create_node("rsRSVectorMakerShaderNode", origin[0]-1600, origin[1])
             
             matVector.inputs[0].default_value = 1
             matVector.inputs[1].default_value = 1
         
         # CREATE BASE COLOR
+        coloffset = 400
         if props.dir_color:
+            
+            if props.correct_node:
+                color_correct = create_node('rsRSColorCorrectionShaderNode', origin[0]-coloffset, origin[1]) # Create node
+                coloffset +=400
+                
             mat.node_tree.nodes["StandardMaterial"].inputs[1].default_value = False # Open RS Base Dropdown
-            base_color = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1]) # Create node
-            viewport_node = create_node('ShaderNodeTexImage', origin[0]-1800, origin[1])
-
-            origin[1] -= 400  # Offsets y-axis for the next node to be placed next to it
+            base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]) # Create node
             
             tex = load_file(bpy.path.abspath(props.dir_color)) # Load texture to file
+            tex.colorspace_settings.name = 'sRGB'
+            
+            if props.image_node:
+                viewport_node = create_node('ShaderNodeTexImage', origin[0]-coloffset-1600, origin[1])
+                viewport_node.image = tex
+
+            origin[1] -= 400  # Offsets y-axis for the next node to be placed next to it
             base_color.inputs[2].default_value = tex # Set file to node
             base_color.inputs[0].default_value = False # Expand General Dropdown
-            viewport_node.image = tex
             base_color.label = "Base Color" # Label the node
-            link_node(base_color.outputs[0], rsMaterial.inputs[2]) # Connect nodes
+            if props.correct_node:
+                
+                link_node(base_color.outputs[0], color_correct.inputs[0]) # Connect nodes
+                link_node(color_correct.outputs[0], rsMaterial.inputs[2]) # Connect nodes
+            else:
+                link_node(base_color.outputs[0], rsMaterial.inputs[2]) # Connect nodes
             
             if props.scalar_node:
                 link_node(matVector.outputs[0], base_color.inputs[12])
@@ -298,7 +347,7 @@ class RMB_build(bpy.types.Operator):
             mat.node_tree.nodes["StandardMaterial"].inputs[1].default_value = False # Open RS Base Dropdown
             offset = -400
             
-            ao = create_node('rsTextureSamplerShaderNode', origin[0]+offset, origin[1]+400) # Create node
+            ao = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]+400) # Create node
             tex = load_file(bpy.path.abspath(props.dir_ao)) # Load texture to file
             tex.colorspace_settings.name = 'Raw'
             ao.inputs[2].default_value = tex # Set file to node
@@ -469,10 +518,9 @@ class RMB_build(bpy.types.Operator):
         
             origin[1] -= 300  # Offsets y-axis for the next node to be placed next to it
             
-        # CREATE MATERIAL OUTPUT
+        # CREATE ALPHA
         rsOutput = create_node('RedshiftMaterialOutputNode', origin[0]+400, 0)
             
-        # CREATE ALPHA
         if props.dir_alpha:
             alpha = create_node('rsSpriteShaderNode', origin[0]+300, 0) # Create node
             
@@ -508,7 +556,7 @@ class RMB_build(bpy.types.Operator):
                 link_node(matVector.outputs[0], emission.inputs[12])
             
         rsMaterial.location[1] = origin[1]*0.25
-
+    
         # CREATE DISPLACEMENT
         if props.dir_displacement:
             mat.node_tree.nodes["StandardMaterial"].inputs[54].default_value = False # Open RS Geometry Dropdown
@@ -523,8 +571,8 @@ class RMB_build(bpy.types.Operator):
             displacement.label = "Displacement" # Label the node
             bpy.context.active_object.rsTessDisp.GetTessellationEnabled = True
             bpy.context.active_object.rsTessDisp.GetDisplacementEnabled = True
-            bpy.context.active_object.rsTessDisp.GetDisplacementScale = 1.0 # As of 3515 displacement wont show in the IPR unless its value is changed again
-            rs_disp.inputs[2].default_value = 0.25
+            bpy.context.active_object.rsTessDisp.GetDisplacementScale = 1.0 # As of 3515 displacement wont show in the IPR unless its value is changed again. This is an attempt at fixing the problem
+            rs_disp.inputs[2].default_value = props.displacement_scale # Set displacement scale from user input
             
             if props.normal_type == "1":
                 rs_disp.inputs[4].default_value = "2"
@@ -534,6 +582,8 @@ class RMB_build(bpy.types.Operator):
             
             if props.scalar_node:
                 link_node(matVector.outputs[0], displacement.inputs[12])
+                
+            dprint("Build Complete")
         return {"FINISHED"}
       
 class RMBpanel_create(bpy.types.Panel):
@@ -558,6 +608,7 @@ class RMBpanel_create(bpy.types.Panel):
         
     def draw(self, context):
         layout = self.layout
+
         scene = context.scene
         
         if not rsEnabled():
@@ -568,7 +619,6 @@ class RMBpanel_create(bpy.types.Panel):
 
             layout.prop(props, "base_dir")
             layout.separator()
-
             row = layout.row()
             row.scale_y = 1.5
             row.operator("node.rmb_build")
@@ -594,6 +644,7 @@ class RMBpanel_settings(bpy.types.Panel):
         space = context.space_data
         if space.node_tree is not None and space.node_tree.library is None and space.tree_type == "ShaderNodeTree":
             return True
+        
         return False
     
     def draw_header(self, context):
@@ -602,6 +653,7 @@ class RMBpanel_settings(bpy.types.Panel):
         
     def draw(self, context):
         layout = self.layout
+
         scene = context.scene
         
         if not rsEnabled():
@@ -609,13 +661,15 @@ class RMBpanel_settings(bpy.types.Panel):
         else:
             props = scene.RMB
             layout.prop(props,"scalar_node")
-            layout.separator(factor=0.5)
-            layout.prop(props,"normal_type")
+            layout.prop(props,"image_node")
+            layout.prop(props,"correct_node")
             layout.prop(props,"normal_flip")
-            layout.separator(factor=0.5)
+            layout.prop(props,"normal_type")
             layout.prop(props,"alpha_type")
+            layout.prop(props,"displacement_scale")
+            layout.prop(props,"delete_before_build")
             layout.separator(factor=1)
-            layout.label(text="Naming Conventions:")
+            layout.label(text="Texture Keywords:")
             layout.prop(props, "base_color")
             layout.prop(props, "ao")
             layout.prop(props, "metallic")
