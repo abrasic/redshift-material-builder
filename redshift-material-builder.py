@@ -32,6 +32,12 @@ class RMB_props(bpy.types.PropertyGroup):
         description="Folder that contains all your desired texture files",
         default="",
         subtype = "DIR_PATH")
+        
+    file_filter: StringProperty (
+        update=lambda self, context: updateList(),
+        name="Filter",
+        description="Only search for textures that include AT LEAST ONE of the words entered. Separate words with spaces",
+        default="",)  
       
     dir_color: StringProperty (
         name="Base Color",
@@ -237,22 +243,33 @@ def updateList():
     for i,c in enumerate(material_dir_group):
         setattr(props, material_dir_group[i],"")
     
-    image_files = [".bmp", ".jpg", ".jpeg", ".png", ".tga", ".exr", ".hdr", ".tif", ".tiff", ".webp"]
-    if os.path.isdir(bpy.path.abspath(props.base_dir)):
-        for i, textures in enumerate(os.listdir(bpy.path.abspath(props.base_dir))):
-            if (textures.endswith(tuple(image_files))):
+    if props.base_dir:
+        image_files = [".bmp", ".jpg", ".jpeg", ".png", ".tga", ".exr", ".hdr", ".tif", ".tiff", ".webp"]
+        if os.path.isdir(bpy.path.abspath(props.base_dir)):
+            for i, textures in enumerate(os.listdir(bpy.path.abspath(props.base_dir))):
+                if (textures.endswith(tuple(image_files))):
+                    print("Reading name of "+textures)
 
-                # Loop match thru each material group
-                for i, mat in enumerate(material_group):
-                    matcher = getattr(props, mat)
-                    queries = matcher.split()
-                    
-                    for q in queries:
-                        if search(q, textures, IGNORECASE):
-                            file = bpy.path.abspath(str(props.base_dir) + textures)
-                            setattr(props, material_dir_group[i],file)
-                            break
-        return None
+                    # Loop match thru each material group
+                    for i, mat in enumerate(material_group):
+                        matcher = getattr(props, mat)
+                        queries = matcher.split()
+                        
+                        for q in queries:
+                            if search(q, textures, IGNORECASE):
+                                
+                                if props.file_filter:
+                                    for word in props.file_filter.split():
+                                        if search(word, textures, IGNORECASE):
+                                            print("MATCH " + word + " in " + textures)
+                                            file = bpy.path.abspath(str(props.base_dir) + textures)
+                                            setattr(props, material_dir_group[i],file)
+                                            break
+                                else:
+                                    file = bpy.path.abspath(str(props.base_dir) + textures)
+                                    setattr(props, material_dir_group[i],file)
+                                break
+            return None
     
 def create_node(id, x=0, y=0):
     """Creates a node for active material"""
@@ -619,6 +636,7 @@ class RMBpanel_create(bpy.types.Panel):
             props = scene.RMB
 
             layout.prop(props, "base_dir")
+            layout.prop(props, "file_filter", icon="VIEWZOOM")
             layout.separator()
             row = layout.row()
             row.scale_y = 1.5
