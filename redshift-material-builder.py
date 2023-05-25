@@ -697,7 +697,7 @@ def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
         
-        del bpy.types.Scene.RMB
+    del bpy.types.Scene.RMB
 
 if __name__ == "__main__":
     register()
