@@ -487,7 +487,7 @@ class RMB_build(bpy.types.Operator):
             
         # CREATE NORMAL
         if props.dir_normal:
-            bpy.context.active_object.redshift.skipTangents = False
+            bpy.context.active_object.redshift.skipTangents = True if props.normal_type == "2" else False
             bpy.ops.object.shade_smooth()
             rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
             rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
@@ -549,8 +549,8 @@ class RMB_build(bpy.types.Operator):
             alpha.inputs[3].default_value = tex
             alpha.inputs[2].default_value = False # Expand Stencil Dropdown
             alpha.label = "Alpha"
-            link_node(alpha.outputs[0], rsMaterial.inputs[52])
             rsOutput.location[0] += 200
+            alpha.inputs[4].default_value = props.uv_map
             alpha.inputs[5].default_value = props.alpha_type
             
             link_node(rsMaterial.outputs[0], alpha.inputs[1])
