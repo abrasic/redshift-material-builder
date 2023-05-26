@@ -649,7 +649,6 @@ class RMBpanel_create(bpy.types.Panel):
                     break
                 row.enabled = False
             
-            print(v)
             if not v: 
                 layout.label(text="Specify at least one texture", icon="ERROR")
 
