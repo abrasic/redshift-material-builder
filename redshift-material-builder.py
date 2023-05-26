@@ -570,7 +570,6 @@ class RMB_build(bpy.types.Operator):
             emission.inputs[0].default_value = False # Expand General Dropdown
             emission.label = "Emission"
             link_node(emission.outputs[0], rsMaterial.inputs[52])
-            print("EMISS")
             rsMaterial.inputs[53].default_value = 1.0
             
             if props.scalar_node:
