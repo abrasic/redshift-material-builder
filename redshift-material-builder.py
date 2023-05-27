@@ -134,7 +134,14 @@ class RMB_props(bpy.types.PropertyGroup):
     correct_node: BoolProperty(
         name="Add rsColorCorrect for Color",
         description="When enabled, this will connect your color texture thru an rsColorCorrect node",
-        default=True
+        default=False
+    )
+    
+    color_space: EnumProperty(
+        name="Diffuse Color Space",
+        description="Sets the color space for your color texture",
+        items=[('sRGB', "sRGB", "",),('ACEScg', "ACEScg", ""),('scene-linear Rec.709-sRGB', "scene-linear Rec.709-sRGB *", "* Requires OCIO call on startup (redshift.maxon.net/topic/37435)"),],
+        default='sRGB'
     )
     
     normal_type: EnumProperty(
@@ -151,10 +158,20 @@ class RMB_props(bpy.types.PropertyGroup):
         default=1
     )
     
-    normal_flip: BoolProperty(
-        name="Flip Normal Scale",
-        description="-1 will be used for normal scale instead of 1",
-        default=False
+    normal_scale: FloatProperty(
+        name="Normal Scale",
+        description="Sets the value of normal map scale, if used",
+        default=1,
+        soft_min=-2,
+        soft_max=2
+    )
+    
+    bump_scale: FloatProperty(
+        name="Bump Scale",
+        description="Sets the value of bump map scale, if used",
+        default=0.01,
+        soft_min=-2,
+        soft_max=2
     )
     
     displacement_scale: FloatProperty(
@@ -318,7 +335,8 @@ class RMB_build(bpy.types.Operator):
         if props.delete_before_build:
             bpy.ops.node.select_all(action='SELECT')
             bpy.ops.node.delete()
-
+        else:
+            bpy.ops.node.select_all(action='DESELECT')
         
         # CREATE STANDARD MATERIAL
         rsMaterial = create_node("rsStandardMaterialShaderNode", origin[0], origin[1])
@@ -343,7 +361,16 @@ class RMB_build(bpy.types.Operator):
             base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1])
             
             tex = load_file(bpy.path.abspath(props.dir_color)) # Load texture to file
-            tex.colorspace_settings.name = 'sRGB'
+            
+            try:
+                tex.colorspace_settings.name = props.color_space
+            except TypeError:
+                if props.color_space == "ACEScg":
+                    tex.colorspace_settings.name = "Linear ACEScg"
+                else:
+                    self.report({'INFO'}, props.color_space + " not found, using sRGB")
+                    tex.colorspace_settings.name = "sRGB"
+                
             
             if props.image_node:
                 viewport_node = create_node('ShaderNodeTexImage', origin[0]-coloffset-1600, origin[1])
@@ -493,9 +520,8 @@ class RMB_build(bpy.types.Operator):
             rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
             normal = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
             origin[1] -= 300
-            
-            if props.normal_flip:
-                rs_nbump.inputs[4].default_value = -1
+
+            rs_nbump.inputs[4].default_value = props.normal_scale
             
             tex = load_file(bpy.path.abspath(props.dir_normal))
             tex.colorspace_settings.name = 'Raw'
@@ -523,8 +549,12 @@ class RMB_build(bpy.types.Operator):
             bump.inputs[0].default_value = False # Expand General Dropdown
             bump.label = "Bump"
             
+            rs_bump.inputs[4].default_value = props.bump_scale
+            
             if props.dir_normal:
                 bump_blender = create_node('rsBumpBlenderShaderNode', origin[0], origin[1])
+                bump_blender.inputs[4].default_value = 1 # Blend Weight Layer 0
+                bump_blender.inputs[11].default_value = True # Additive Mode
                 
                 link_node(bump.outputs[0], rs_bump.inputs[3])
                 link_node(rs_bump.outputs[0], bump_blender.inputs[3]) # Bump to Layer 0
@@ -589,6 +619,9 @@ class RMB_build(bpy.types.Operator):
             displacement.inputs[2].default_value = tex
             displacement.inputs[0].default_value = False
             displacement.label = "Displacement"
+            
+            rs_disp.inputs[10].default_value = -1.0 # New Range Min
+            rs_disp.inputs[6].default_value = props.uv_map
             bpy.context.active_object.rsTessDisp.GetTessellationEnabled = True
             bpy.context.active_object.rsTessDisp.GetDisplacementEnabled = True
             bpy.context.active_object.rsTessDisp.GetDisplacementScale = 1.0 # As of 3515 displacement wont show in the IPR unless its value is changed again. This is an attempt at fixing the problem
@@ -692,11 +725,13 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.prop(props,"scalar_node")
             layout.prop(props,"image_node")
             layout.prop(props,"correct_node")
-            layout.prop(props,"normal_flip")
-            layout.prop(props,"normal_type")
+            layout.prop(props,"color_space")
             layout.prop(props,"alpha_type")
-            layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
+            layout.prop(props,"normal_type")
+            layout.prop(props,"normal_scale")
+            layout.prop(props,"bump_scale")
             layout.prop(props,"displacement_scale")
+            layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
             layout.prop(props,"delete_before_build")
             layout.separator(factor=1)
             layout.label(text="Texture Keywords:")
