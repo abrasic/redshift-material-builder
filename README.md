@@ -32,8 +32,8 @@ You can either enter your maps manually based on their texture type, or you can 
 
  * When enabled, a Color Correct node will be connected to your color map.
 
-### Flip Normal Scale
-  * When enabled, it will use a normal scale of -1 instead of default 1.
+### Diffuse Color Space
+ * Lets you change the color space that is used for the diffuse map. You can select between sRGB, ACEScg or Rec. 709 (utilizing Rec. 709 for Redshift [requires OCIO call before Blender startup](https://redshift.maxon.net/topic/37435/).
 
 ### Normal Input
  * When using normal maps, this creates a bump map supporting the [type of normal map](https://help.maxon.net/r3d/blender/en-us/index.html#html/Bump+Map.html#BumpMap-InputMapType) you are using.
@@ -41,8 +41,17 @@ You can either enter your maps manually based on their texture type, or you can 
 ### Alpha Input
   * When using alphas, this creates a sprite node supporting the [type of alpha map](https://help.maxon.net/r3d/blender/en-us/index.html#html/Sprite+Node.html#SpriteNode-OpacityCalculation) you'll be using.
 
-### Displacement Scale
-  * Sets the scale of the displacement to the number specified.
+### Diffuse is Alpha
+  * Instead of an independent alpha map, the alpha channel of the diffuse map may be used instead.
+
+### Normal/Bump/Displacement Scale
+  * Sets the scale for the specified bump mapping systems.
+
+### UV Map
+  * The UV map to be used for building the material.
+
+### Use UDIM
+  * When enabled, all texture sources will use UDIM tiles.
 
 ### Delete Nodes Before Build
   * Deletes all nodes in the active material before building.
@@ -52,5 +61,5 @@ You can either enter your maps manually based on their texture type, or you can 
   * These are the keywords that RMB uses to detect texture types. You can add your own here. They are **not** case-sensitive, and each keyword must be separated by spaces.
 
 ## Other Info
-  * This is **not** a convert-from-cycles add-on. RMB acts as a baseplate creator for making new Redshift materials.
+  * This is **not** a convert-from-cycles add-on. RMB acts as a kickstarter for creating new Redshift materials.
   * As of Redshift 3.5.15, there is a bug where the dispalcement effects won't be visible in the IPR unless you tweak `Object Properties > Redshift > Displacement > Displacement Scale` for your selected object (just select the property and press enter, then reload the IPR).
