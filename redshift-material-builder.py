@@ -136,6 +136,12 @@ class RMB_props(bpy.types.PropertyGroup):
         description="When enabled, this will connect your color texture thru an rsColorCorrect node",
         default=False
     )
+
+    color_is_alpha: BoolProperty(
+        name="Diffuse is Alpha",
+        description="When enabled, the Alpha of the material will be determined by the alpha channel of the base color texture",
+        default=False
+    )
     
     color_space: EnumProperty(
         name="Diffuse Color Space",
@@ -186,6 +192,12 @@ class RMB_props(bpy.types.PropertyGroup):
         name="UV Map", 
         default="UVMap", 
         description="The UV Map that will be used on all texture nodes"
+    )
+    
+    use_udim: BoolProperty(
+        name="Use UDIM",
+        description="When enabled, all texture sources will be set to use UDIM Tiles",
+        default=False
     )
         
     base_color: StringProperty(
@@ -249,9 +261,16 @@ class RMB_props(bpy.types.PropertyGroup):
         description="When enabled, this will delete previously existing nodes for your active material while building",
         default=False
     )
+    
+    debug_mode: BoolProperty(
+        name="Debug Mode",
+        description="When enabled, debugging information will be printed onto the System Console",
+        default=False
+    )
 
 def dprint(text):
-    print('\x1b[7;36;40m' + '[RMB]' + '\x1b[0m ' + text)
+    if bpy.context.scene.RMB.debug_mode:
+        print('\x1b[7;36;40m' + '[RMB]' + '\x1b[0m ' + text)
 
 def rsEnabled():
     for addon in bpy.context.preferences.addons:
@@ -260,9 +279,10 @@ def rsEnabled():
     return False
 
 def updateList():
+    """Updates texture list which filters based on image type and user-specified filter. This should only be called after a filter or target folder change"""
     props = bpy.context.scene.RMB
     
-    for i,c in enumerate(material_dir_group):
+    for i, c in enumerate(material_dir_group):
         setattr(props, material_dir_group[i], "")
     
     if props.base_dir:
@@ -271,7 +291,7 @@ def updateList():
             for i, textures in enumerate(os.listdir(bpy.path.abspath(props.base_dir))):
                 if (textures.endswith(tuple(image_files))):
 
-                    # Loop match thru each material group
+                    # Loop match thru each possible texture type
                     for i, mat in enumerate(material_group):
                         matcher = getattr(props, mat)
                         queries = matcher.split()
@@ -288,7 +308,7 @@ def updateList():
                                     file = bpy.path.abspath(str(props.base_dir) + textures)
                                     setattr(props, material_dir_group[i],file)
                                 break
-            return None
+    return None
     
 def create_node(id, x=0, y=0):
     """Creates a node for the active material, where id represents the bl_idname of the node to be created."""
@@ -310,13 +330,21 @@ def link_node(from_input, to_output):
     
 def load_file(path):
     """Loads an image file. If it's already used in the blender file, use it instead of loading it again."""
+    props = bpy.context.scene.RMB
+    
     for image in bpy.data.images:
         if bpy.path.abspath(image.filepath) == path:
             dprint("Texture " + str(image.name) + " already loaded in file. Using it instead...")
+            if props.use_udim:
+                dprint("Switching texture to UDIM")
+                image.source = "TILED"
             return image
         
     tex = bpy.data.images.load(path)
-    dprint("Texture " + str(path) + "loaded")
+    if props.use_udim:
+        dprint("Setting texture to UDIM")
+        tex.source = "TILED"
+    dprint("Loaded texture " + str(path))
     return tex
     
 class RMB_build(bpy.types.Operator):
@@ -515,7 +543,6 @@ class RMB_build(bpy.types.Operator):
         # CREATE NORMAL
         if props.dir_normal:
             bpy.context.active_object.redshift.skipTangents = True if props.normal_type == "2" else False
-            bpy.ops.object.shade_smooth()
             rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
             rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
             normal = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
@@ -572,16 +599,25 @@ class RMB_build(bpy.types.Operator):
         # CREATE ALPHA
         rsOutput = create_node('RedshiftMaterialOutputNode', origin[0]+400, 0)
             
-        if props.dir_alpha:
+        if props.dir_alpha or props.color_is_alpha:
             alpha = create_node('rsSpriteShaderNode', origin[0]+300, 0)
             
-            tex = load_file(bpy.path.abspath(props.dir_alpha))
-            alpha.inputs[3].default_value = tex
+            if props.color_is_alpha:
+                tex = load_file(bpy.path.abspath(props.dir_color))
+                alpha.inputs[3].default_value = tex
+            else:
+                tex = load_file(bpy.path.abspath(props.dir_alpha))
+                alpha.inputs[3].default_value = tex
+
             alpha.inputs[2].default_value = False # Expand Stencil Dropdown
             alpha.label = "Alpha"
             rsOutput.location[0] += 200
             alpha.inputs[4].default_value = props.uv_map
-            alpha.inputs[5].default_value = props.alpha_type
+
+            if props.color_is_alpha:
+                alpha.inputs[5].default_value = '1'
+            else:
+                alpha.inputs[5].default_value = props.alpha_type
             
             link_node(rsMaterial.outputs[0], alpha.inputs[1])
             link_node(alpha.outputs[0], rsOutput.inputs[0])
@@ -636,7 +672,8 @@ class RMB_build(bpy.types.Operator):
             if props.scalar_node:
                 link_node(matVector.outputs[0], displacement.inputs[12])
                 
-            dprint("Build Complete")
+        
+        dprint("---- BUILD COMPLETE ----")
         return {"FINISHED"}
       
 class RMBpanel_create(bpy.types.Panel):
@@ -679,9 +716,9 @@ class RMBpanel_create(bpy.types.Panel):
                 if getattr(props, prop):
                     v = True
                     break
-                row.enabled = False
             
             if not v: 
+                row.enabled = False
                 layout.label(text="Specify at least one texture", icon="ERROR")
 
             if not props.uv_map in bpy.context.active_object.data.uv_layers:
@@ -725,15 +762,31 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.prop(props,"scalar_node")
             layout.prop(props,"image_node")
             layout.prop(props,"correct_node")
+            
+            layout.separator(factor=0.3)
+            
             layout.prop(props,"color_space")
-            layout.prop(props,"alpha_type")
             layout.prop(props,"normal_type")
+            layout.prop(props,"alpha_type")
+            layout.prop(props,"color_is_alpha")
+            
+            layout.separator(factor=0.3)
+            
             layout.prop(props,"normal_scale")
             layout.prop(props,"bump_scale")
             layout.prop(props,"displacement_scale")
+            
+            layout.separator(factor=0.3)
+            
             layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
+            layout.prop(props,"use_udim")
+            
+            layout.separator(factor=0.3)
+            
             layout.prop(props,"delete_before_build")
+            
             layout.separator(factor=1)
+            
             layout.label(text="Texture Keywords:")
             layout.prop(props, "base_color")
             layout.prop(props, "ao")
@@ -748,6 +801,10 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.prop(props, "emission")
             layout.prop(props, "alpha")
             layout.prop(props, "displacement")
+            
+            layout.separator(factor=5)
+            
+            layout.prop(props, "debug_mode")
             
 classes = (RMBpanel_create,RMBpanel_settings,RMB_props,RMB_build)
 
