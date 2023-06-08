@@ -1,6 +1,8 @@
 # Redshift Material Builder for Blender
 > Requires [Redshift Renderer](https://www.maxon.net/redshift) to use. Works as of 3.5.15
 
+> **This is a FREE product. However, you can still support the developer by [purchasing the product on Gumroad](https://box.gumroad.com/l/rmb) if you found it useful.**
+
 RMB is a small utility script that creates basic PBR setups with only a couple clicks. Instead of wasting time by converting your cycles node trees into Redshift by hand, get a jump start by using RMB.
 
 ## Supported Maps
