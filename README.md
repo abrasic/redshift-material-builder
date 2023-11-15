@@ -39,7 +39,7 @@ Alternative to Building from Files, you can also build a setup directly from the
  * When enabled, a Color Correct node will be connected to your color map.
 
 ### Diffuse Color Space
- * Lets you change the color space that is used for the diffuse map. You can select between sRGB, ACEScg or Rec. 709 (utilizing Rec. 709 for Redshift [requires OCIO call before Blender startup](https://redshift.maxon.net/topic/37435/).
+ * Lets you change the color space that is used for the diffuse map.
 
 ### Normal Input
  * When using normal maps, this creates a bump map supporting the [type of normal map](https://help.maxon.net/r3d/blender/en-us/index.html#html/Bump+Map.html#BumpMap-InputMapType) you are using.
