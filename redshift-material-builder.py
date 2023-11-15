@@ -12,7 +12,7 @@ bl_info = {
     "name": "Redshift Material Builder",
     "description": "Create quick PBR materials with Redshift",
     "author": "Abrasic",
-    "version": (1, 0),
+    "version": (1, 1),
     "blender": (3, 5, 0),
     "location": "Shader Editor > N-Panel > RMB",
     "support": "COMMUNITY",
@@ -143,10 +143,16 @@ class RMB_props(bpy.types.PropertyGroup):
         default=False
     )
     
+    color_spaces = bpy.types.Image.bl_rna.properties['colorspace_settings'].fixed_type.properties['name'].enum_items
+    color_items = []
+    
+    for i, space in enumerate(color_spaces):
+        color_items.append((space.name, space.name, "", i))
+    
     color_space: EnumProperty(
         name="Diffuse Color Space",
         description="Sets the color space for your color texture",
-        items=[('sRGB', "sRGB", "",),('ACEScg', "ACEScg", ""),('scene-linear Rec.709-sRGB', "scene-linear Rec.709-sRGB *", "* Requires OCIO call on startup (redshift.maxon.net/topic/37435)"),],
+        items=color_items,
         default='sRGB'
     )
     
@@ -281,6 +287,7 @@ def rsEnabled():
 def updateList():
     """Updates texture list which filters based on image type and user-specified filter. This should only be called after a filter or target folder change"""
     props = bpy.context.scene.RMB
+    props.uv_map = bpy.context.active_object.data.uv_layers.active.name
     
     for i, c in enumerate(material_dir_group):
         setattr(props, material_dir_group[i], "")
@@ -310,6 +317,30 @@ def updateList():
                                 break
     return None
     
+class RMB_guess(bpy.types.Operator):
+    """Determines appropraite texture types by user-specified key words"""
+    bl_label = "Set by Keywords"
+    bl_idname = "node.rmb_guess"
+
+    def execute(self, context):
+        props = bpy.context.scene.RMB
+        props.uv_map = bpy.context.active_object.data.uv_layers.active.name
+        
+        for node in bpy.context.active_object.active_material.node_tree.nodes:
+            if node.bl_idname == "ShaderNodeTexImage":
+                if node.image:
+                    # Loop match thru each possible texture type
+                    for i, mat in enumerate(material_group):
+                        matcher = getattr(props, mat)
+                        queries = matcher.split()
+                        
+                        for q in queries:
+                            texture = bpy.path.basename(node.image.filepath)
+                            if search(q, texture, IGNORECASE):
+                                setattr(node.image, "texture_type", mat)
+                                break
+        return {"FINISHED"}
+
 def create_node(id, x=0, y=0):
     """Creates a node for the active material, where id represents the bl_idname of the node to be created."""
     
@@ -348,337 +379,366 @@ def load_file(path):
     return tex
     
 class RMB_build(bpy.types.Operator):
-    """Builds a Redshift Standard Material based on the textures currently supplied"""
+    """Builds a Redshift Standard Material based on the textures specified by the user"""
     bl_label = "Build"
     bl_idname = "node.rmb_build"
-
-    def execute(self, context):
-        origin = [0,0]
-        mat = bpy.context.active_object.active_material
-        mat.use_nodes = True
-        
-        props = context.scene.RMB
-        
-        # DELETE ALL NODES
-        if props.delete_before_build:
-            bpy.ops.node.select_all(action='SELECT')
-            bpy.ops.node.delete()
-        else:
-            bpy.ops.node.select_all(action='DESELECT')
-        
-        # CREATE STANDARD MATERIAL
-        rsMaterial = create_node("rsStandardMaterialShaderNode", origin[0], origin[1])
-        
-        # CREATE VECTOR SCALE
-        if props.scalar_node:
-            dprint("Creating Standard Material...")
-            matVector = create_node("rsRSVectorMakerShaderNode", origin[0]-1600, origin[1])
-            
-            matVector.inputs[0].default_value = 1
-            matVector.inputs[1].default_value = 1
-        
-        # CREATE BASE COLOR
-        coloffset = 400
-        if props.dir_color:
-            
-            if props.correct_node:
-                color_correct = create_node('rsRSColorCorrectionShaderNode', origin[0]-coloffset, origin[1])
-                coloffset +=400
-                
-            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
-            base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1])
-            
-            tex = load_file(bpy.path.abspath(props.dir_color)) # Load texture to file
-            
-            try:
-                tex.colorspace_settings.name = props.color_space
-            except TypeError:
-                if props.color_space == "ACEScg":
-                    tex.colorspace_settings.name = "Linear ACEScg"
-                else:
-                    self.report({'INFO'}, props.color_space + " not found, using sRGB")
-                    tex.colorspace_settings.name = "sRGB"
-                
-            
-            if props.image_node:
-                viewport_node = create_node('ShaderNodeTexImage', origin[0]-coloffset-1600, origin[1])
-                viewport_node.image = tex
-
-            origin[1] -= 400  # Offsets y-axis for the next node to be placed next to it
-            base_color.inputs[2].default_value = tex # Set file to node
-            base_color.inputs[0].default_value = False # Expand General Dropdown
-            base_color.label = "Base Color"
-            if props.correct_node:
-                
-                link_node(base_color.outputs[0], color_correct.inputs[0])
-                link_node(color_correct.outputs[0], rsMaterial.inputs[2])
-            else:
-                link_node(base_color.outputs[0], rsMaterial.inputs[2])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], base_color.inputs[12])
-            
-        # CREATE AO
-        if props.dir_ao:
-            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
-            offset = -400
-            
-            ao = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]+400)
-            tex = load_file(bpy.path.abspath(props.dir_ao))
-            tex.colorspace_settings.name = 'Raw'
-            ao.inputs[2].default_value = tex # Set file to node
-            ao.inputs[0].default_value = False # Expand General Dropdown
-            ao.label = "AO"
-            
-            if context.scene.RMB.dir_color:
-                ao.location = (ao.location[0]-400, ao.location[1])
-                base_color.inputs[15].default_value = False # Opens "Adjust" dropdown for Base Color node
-
-                link_node(ao.outputs[0], base_color.inputs[16]) # Connect to Base Color Multiplier
-            else: # Use AO as a base color instead
-                link_node(ao.outputs[0], rsMaterial.inputs[2]) # Connect to Standard Metail Base Color
-                tex.colorspace_settings.name = 'sRGB' # Change space
-                
-            if props.scalar_node:
-                link_node(matVector.outputs[0], ao.inputs[12])
-                
-        # CREATE METALLIC
-        if props.dir_metallic:
-            rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
-            metalness = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_metallic)) # Load texture to file
-            tex.colorspace_settings.name = 'Raw'
-            metalness.inputs[2].default_value = tex # Set file to node
-            metalness.inputs[0].default_value = False # Expand General Dropdown
-            metalness.label = "Metalness" # Label the node
-            link_node(metalness.outputs[0], rsMaterial.inputs[6]) # Connect nodes
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], metalness.inputs[12])
-            
-        # CREATE SPECULAR
-        if props.dir_specular:
-            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
-            specular = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_specular)) # Load texture to file
-            tex.colorspace_settings.name = 'Raw'
-            specular.inputs[2].default_value = tex # Set file to node
-            specular.inputs[0].default_value = False # Expand General Dropdown
-            specular.label = "Specular"
-            link_node(specular.outputs[0], rsMaterial.inputs[8])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], specular.inputs[12])
-            
-        # CREATE GLOSS
-        if props.dir_gloss and not props.dir_rough: # Gloss and rough maps cannot be used at the same time. If a rough map is supplied, roughness will be used instead.
-            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
-            gloss_invert = create_node('rsRSMathInvColorShaderNode', origin[0]-400, origin[1])
-            gloss = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_gloss))
-            tex.colorspace_settings.name = 'Raw'
-            gloss.inputs[2].default_value = tex
-            gloss.inputs[0].default_value = False # Expand General Dropdown
-            gloss.label = "Gloss"
-            link_node(gloss_invert.outputs[0], rsMaterial.inputs[10])
-            link_node(gloss.outputs[0], gloss_invert.inputs[0])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], gloss.inputs[12])
-            
-        # CREATE ROUGH
-        if props.dir_rough:
-            rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
-            rough = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_rough))
-            tex.colorspace_settings.name = 'Raw'
-            rough.inputs[2].default_value = tex
-            rough.inputs[0].default_value = False # Expand General Dropdown
-            rough.label = "Roughness"
-            link_node(rough.outputs[0], rsMaterial.inputs[10])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], rough.inputs[12])
-            
-        # CREATE TRANSMISSION
-        if props.dir_transmission:
-            rsMaterial.inputs[15].default_value = False # Open RS Transmission Dropdown
-            transmission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_rough))
-            tex.colorspace_settings.name = 'Raw' 
-            transmission.inputs[2].default_value = tex
-            transmission.inputs[0].default_value = False # Expand General Dropdown
-            transmission.label = "Transmission"
-            link_node(transmission.outputs[0], rsMaterial.inputs[17])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], transmission.inputs[12])
-            
-        # CREATE SSS
-        if props.dir_sss:
-            rsMaterial.inputs[25].default_value = False # Open RS Subsurface Dropdown
-            sss = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_sss))
-            tex.colorspace_settings.name = 'Raw'
-            sss.inputs[2].default_value = tex
-            sss.inputs[0].default_value = False # Expand General Dropdown
-            sss.label = "SSS"
-            link_node(sss.outputs[0], rsMaterial.inputs[27])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], sss.inputs[12])
-            
-        # CREATE NORMAL
-        if props.dir_normal:
-            bpy.context.active_object.redshift.skipTangents = True if props.normal_type == "2" else False
-            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
-            rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
-            normal = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
-            origin[1] -= 300
-
-            rs_nbump.inputs[4].default_value = props.normal_scale
-            
-            tex = load_file(bpy.path.abspath(props.dir_normal))
-            tex.colorspace_settings.name = 'Raw'
-            normal.inputs[2].default_value = tex
-            normal.inputs[0].default_value = False # Expand General Dropdown
-            normal.label = "Normal"
-            
-            rs_nbump.inputs[2].default_value = props.normal_type
-            
-            link_node(rs_nbump.outputs[0], rsMaterial.inputs[57])
-            link_node(normal.outputs[0], rs_nbump.inputs[3])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], normal.inputs[12])
-            
-        # CREATE BUMP
-        if props.dir_bump:
-            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
-            rs_bump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
-            bump = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
-            
-            tex = load_file(bpy.path.abspath(props.dir_normal))
-            tex.colorspace_settings.name = 'Raw'
-            bump.inputs[2].default_value = tex
-            bump.inputs[0].default_value = False # Expand General Dropdown
-            bump.label = "Bump"
-            
-            rs_bump.inputs[4].default_value = props.bump_scale
-            
-            if props.dir_normal:
-                bump_blender = create_node('rsBumpBlenderShaderNode', origin[0], origin[1])
-                bump_blender.inputs[4].default_value = 1 # Blend Weight Layer 0
-                bump_blender.inputs[11].default_value = True # Additive Mode
-                
-                link_node(bump.outputs[0], rs_bump.inputs[3])
-                link_node(rs_bump.outputs[0], bump_blender.inputs[3]) # Bump to Layer 0
-                link_node(rs_nbump.outputs[0], bump_blender.inputs[1]) # Normal to Input
-                link_node(bump_blender.outputs[0], rsMaterial.inputs[57]) # BumpBlender to Standard
-            else:
-                link_node(rs_bump.outputs[0], rsMaterial.inputs[57])
-                link_node(bump.outputs[0], rs_bump.inputs[3])
-                
-            if props.scalar_node:
-                link_node(matVector.outputs[0], bump.inputs[12])
-        
-            origin[1] -= 300
-            
-        # CREATE ALPHA
-        rsOutput = create_node('RedshiftMaterialOutputNode', origin[0]+400, 0)
-            
-        if props.dir_alpha or props.color_is_alpha:
-            alpha = create_node('rsSpriteShaderNode', origin[0]+300, 0)
-            
-            if props.color_is_alpha:
-                tex = load_file(bpy.path.abspath(props.dir_color))
-                alpha.inputs[3].default_value = tex
-            else:
-                tex = load_file(bpy.path.abspath(props.dir_alpha))
-                alpha.inputs[3].default_value = tex
-
-            alpha.inputs[2].default_value = False # Expand Stencil Dropdown
-            alpha.label = "Alpha"
-            rsOutput.location[0] += 200
-            alpha.inputs[4].default_value = props.uv_map
-
-            if props.color_is_alpha:
-                alpha.inputs[5].default_value = '1'
-            else:
-                alpha.inputs[5].default_value = props.alpha_type
-            
-            link_node(rsMaterial.outputs[0], alpha.inputs[1])
-            link_node(alpha.outputs[0], rsOutput.inputs[0])
-        else:
-            link_node(rsMaterial.outputs[0], rsOutput.inputs[0])
-
-        # CREATE EMISSION
-        if props.dir_emission:
-            rsMaterial.inputs[51].default_value = False # Open RS Emission Dropdown
-            emission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_emission))
-            tex.colorspace_settings.name = 'Raw'
-            emission.inputs[2].default_value = tex
-            emission.inputs[0].default_value = False # Expand General Dropdown
-            emission.label = "Emission"
-            link_node(emission.outputs[0], rsMaterial.inputs[52])
-            rsMaterial.inputs[53].default_value = 1.0
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], emission.inputs[12])
-            
-        rsMaterial.location[1] = origin[1]*0.25
     
-        # CREATE DISPLACEMENT
-        if props.dir_displacement:
-            rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
-            rs_disp = create_node('rsDisplacementShaderNode', origin[0], origin[1])
-            displacement = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
-            origin[1] -= 300
-            
-            tex = load_file(bpy.path.abspath(props.dir_displacement))
-            tex.colorspace_settings.name = 'Raw'
-            displacement.inputs[2].default_value = tex
-            displacement.inputs[0].default_value = False
-            displacement.label = "Displacement"
-            
-            rs_disp.inputs[10].default_value = -1.0 # New Range Min
-            rs_disp.inputs[6].default_value = props.uv_map
-            bpy.context.active_object.rsTessDisp.GetTessellationEnabled = True
-            bpy.context.active_object.rsTessDisp.GetDisplacementEnabled = True
-            bpy.context.active_object.rsTessDisp.GetDisplacementScale = 1.0 # As of 3515 displacement wont show in the IPR unless its value is changed again. This is an attempt at fixing the problem
-            rs_disp.inputs[2].default_value = props.displacement_scale # Set displacement scale from user input
-            
-            if props.normal_type == "1":
-                rs_disp.inputs[4].default_value = "2"
-            
-            link_node(rs_disp.outputs[0], rsOutput.inputs[1])
-            link_node(displacement.outputs[0], rs_disp.inputs[1])
-            
-            if props.scalar_node:
-                link_node(matVector.outputs[0], displacement.inputs[12])
-                
+    def execute(self, context):
+        props = bpy.context.scene.RMB
+        # material_dir_group = "dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"
+        build_material(tex_base_color=props.dir_color,tex_ao=props.dir_ao,tex_metallic=props.dir_metallic,tex_specular=props.dir_specular,tex_gloss=props.dir_gloss,tex_rough=props.dir_rough,tex_transmission=props.dir_transmission,tex_sss=props.dir_sss,tex_normal=props.dir_normal,tex_bump=props.dir_bump,tex_emission=props.dir_emission,tex_alpha=props.dir_alpha,tex_displacement=props.dir_displacement)
+        return({"FINISHED"})
+    
+class RMB_from_nodes(bpy.types.Operator):
+    """Builds a Redshift Standard Material based on the textures currently supplied from the active material via Image Texture nodes"""
+    bl_label = "Build"
+    bl_idname = "node.rmb_from_nodes"
+    
+    def execute(self, context):
+        # Initialize texture array. [0] is type where [1] is file path
+        possible_textures = []
+        for t in material_group:
+            possible_textures.append((t,None))
         
-        dprint("---- BUILD COMPLETE ----")
-        return {"FINISHED"}
+        dprint(f"Scanning through possible image nodes...")
+        for node in bpy.context.active_object.active_material.node_tree.nodes:
+            if node.bl_idname == "ShaderNodeTexImage":
+                if node.image:
+                    for i,e in enumerate(possible_textures):
+                        print(possible_textures[i][0])
+                        if possible_textures[i][0] == node.image.texture_type:
+                            print("OK!")
+                            possible_textures[i] = (possible_textures[i][0], bpy.path.abspath(node.image.filepath))
+                
+        possible_textures = tuple(possible_textures)
+        dprint(f"Textures to build from: {possible_textures}")
+        # material_dir_group = "dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"
+        build_material(tex_base_color=possible_textures[0][1],tex_ao=possible_textures[1][1],tex_metallic=possible_textures[2][1],tex_specular=possible_textures[3][1],tex_gloss=possible_textures[4][1],tex_rough=possible_textures[5][1],tex_transmission=possible_textures[6][1],tex_sss=possible_textures[7][1],tex_normal=possible_textures[8][1],tex_bump=possible_textures[9][1],tex_emission=possible_textures[10][1],tex_alpha=possible_textures[11][1],tex_displacement=possible_textures[12][1])
+        return({"FINISHED"})
+
+def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specular=None,tex_gloss=None,tex_rough=None,tex_transmission=None,tex_sss=None,tex_normal=None,tex_bump=None,tex_emission=None,tex_alpha=None,tex_displacement=None):
+    origin = [0,0]
+    mat = bpy.context.active_object.active_material
+    mat.use_nodes = True
+    
+    props = bpy.context.scene.RMB
+    
+    # DELETE ALL NODES
+    if props.delete_before_build:
+        bpy.ops.node.select_all(action='SELECT')
+        bpy.ops.node.delete()
+    else:
+        bpy.ops.node.select_all(action='DESELECT')
+    
+    # CREATE STANDARD MATERIAL
+    rsMaterial = create_node("rsStandardMaterialShaderNode", origin[0], origin[1])
+    
+    # CREATE VECTOR SCALE
+    if props.scalar_node:
+        dprint("Creating Standard Material...")
+        matVector = create_node("rsRSVectorMakerShaderNode", origin[0]-1600, origin[1])
+        
+        matVector.inputs[0].default_value = 1
+        matVector.inputs[1].default_value = 1
+    
+    # CREATE BASE COLOR
+    coloffset = 400
+    if tex_base_color:
+        
+        if props.correct_node:
+            color_correct = create_node('rsRSColorCorrectionShaderNode', origin[0]-coloffset, origin[1])
+            coloffset +=400
+            
+        rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
+        base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1])
+        
+        tex = load_file(bpy.path.abspath(tex_base_color)) # Load texture to file
+        
+        try:
+            tex.colorspace_settings.name = props.color_space
+        except TypeError:
+            self.report({'INFO'}, props.color_space + " not found, using sRGB")
+            tex.colorspace_settings.name = "sRGB"
+            
+        
+        if props.image_node:
+            viewport_node = create_node('ShaderNodeTexImage', origin[0]-coloffset-1600, origin[1])
+            viewport_node.image = tex
+
+        origin[1] -= 400  # Offsets y-axis for the next node to be placed next to it
+        base_color.inputs[2].default_value = tex # Set file to node
+        base_color.inputs[0].default_value = False # Expand General Dropdown
+        base_color.label = "Base Color"
+        if props.correct_node:
+            
+            link_node(base_color.outputs[0], color_correct.inputs[0])
+            link_node(color_correct.outputs[0], rsMaterial.inputs[2])
+        else:
+            link_node(base_color.outputs[0], rsMaterial.inputs[2])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], base_color.inputs[12])
+        
+    # CREATE AO
+    if tex_ao:
+        rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
+        offset = -400
+        
+        ao = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1]+400)
+        tex = load_file(bpy.path.abspath(tex_ao))
+        tex.colorspace_settings.name = 'Non-Color'
+        ao.inputs[2].default_value = tex # Set file to node
+        ao.inputs[0].default_value = False # Expand General Dropdown
+        ao.label = "AO"
+        
+        if base_color:
+            ao.location = (ao.location[0]-400, ao.location[1])
+            base_color.inputs[15].default_value = False # Opens "Adjust" dropdown for Base Color node
+
+            link_node(ao.outputs[0], base_color.inputs[16]) # Connect to Base Color Multiplier
+        else: # Use AO as a base color instead
+            link_node(ao.outputs[0], rsMaterial.inputs[2]) # Connect to Standard Metail Base Color
+            tex.colorspace_settings.name = 'sRGB' # Change space
+            
+        if props.scalar_node:
+            link_node(matVector.outputs[0], ao.inputs[12])
+            
+    # CREATE METALLIC
+    if tex_metallic:
+        rsMaterial.inputs[1].default_value = False # Open RS Base Dropdown
+        metalness = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_metallic)) # Load texture to file
+        tex.colorspace_settings.name = 'Non-Color'
+        metalness.inputs[2].default_value = tex # Set file to node
+        metalness.inputs[0].default_value = False # Expand General Dropdown
+        metalness.label = "Metalness" # Label the node
+        link_node(metalness.outputs[0], rsMaterial.inputs[6]) # Connect nodes
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], metalness.inputs[12])
+        
+    # CREATE SPECULAR
+    if tex_specular:
+        rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
+        specular = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_specular)) # Load texture to file
+        tex.colorspace_settings.name = 'Non-Color'
+        specular.inputs[2].default_value = tex # Set file to node
+        specular.inputs[0].default_value = False # Expand General Dropdown
+        specular.label = "Specular"
+        link_node(specular.outputs[0], rsMaterial.inputs[8])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], specular.inputs[12])
+        
+    # CREATE GLOSS
+    if tex_gloss and not tex_rough: # Gloss and rough maps cannot be used at the same time. If a rough map is supplied, roughness will be used instead.
+        rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
+        gloss_invert = create_node('rsRSMathInvColorShaderNode', origin[0]-400, origin[1])
+        gloss = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_gloss))
+        tex.colorspace_settings.name = 'Non-Color'
+        gloss.inputs[2].default_value = tex
+        gloss.inputs[0].default_value = False # Expand General Dropdown
+        gloss.label = "Gloss"
+        link_node(gloss_invert.outputs[0], rsMaterial.inputs[10])
+        link_node(gloss.outputs[0], gloss_invert.inputs[0])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], gloss.inputs[12])
+        
+    # CREATE ROUGH
+    if tex_rough:
+        rsMaterial.inputs[7].default_value = False # Open RS Reflection Dropdown
+        rough = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_rough))
+        tex.colorspace_settings.name = 'Non-Color'
+        rough.inputs[2].default_value = tex
+        rough.inputs[0].default_value = False # Expand General Dropdown
+        rough.label = "Roughness"
+        link_node(rough.outputs[0], rsMaterial.inputs[10])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], rough.inputs[12])
+        
+    # CREATE TRANSMISSION
+    if tex_transmission:
+        rsMaterial.inputs[15].default_value = False # Open RS Transmission Dropdown
+        transmission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_rough))
+        tex.colorspace_settings.name = 'Non-Color' 
+        transmission.inputs[2].default_value = tex
+        transmission.inputs[0].default_value = False # Expand General Dropdown
+        transmission.label = "Transmission"
+        link_node(transmission.outputs[0], rsMaterial.inputs[17])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], transmission.inputs[12])
+        
+    # CREATE SSS
+    if tex_sss:
+        rsMaterial.inputs[25].default_value = False # Open RS Subsurface Dropdown
+        sss = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_sss))
+        tex.colorspace_settings.name = 'Non-Color'
+        sss.inputs[2].default_value = tex
+        sss.inputs[0].default_value = False # Expand General Dropdown
+        sss.label = "SSS"
+        link_node(sss.outputs[0], rsMaterial.inputs[27])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], sss.inputs[12])
+        
+    # CREATE NORMAL
+    if tex_normal:
+        bpy.context.active_object.redshift.skipTangents = True if props.normal_type == "2" else False
+        rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
+        rs_nbump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
+        normal = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
+        origin[1] -= 300
+
+        rs_nbump.inputs[9].default_value = 1.0
+        rs_nbump.inputs[4].default_value = props.normal_scale
+        
+        tex = load_file(bpy.path.abspath(tex_normal))
+        tex.colorspace_settings.name = 'Non-Color'
+        normal.inputs[2].default_value = tex
+        normal.inputs[0].default_value = False # Expand General Dropdown
+        normal.label = "Normal"
+        
+        rs_nbump.inputs[2].default_value = props.normal_type
+        
+        link_node(rs_nbump.outputs[0], rsMaterial.inputs[57])
+        link_node(normal.outputs[0], rs_nbump.inputs[3])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], normal.inputs[12])
+        
+    # CREATE BUMP
+    if tex_bump:
+        rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
+        rs_bump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
+        bump = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
+        
+        tex = load_file(bpy.path.abspath(tex_normal))
+        tex.colorspace_settings.name = 'Non-Color'
+        bump.inputs[2].default_value = tex
+        bump.inputs[0].default_value = False # Expand General Dropdown
+        bump.label = "Bump"
+        
+        rs_bump.inputs[4].default_value = props.bump_scale
+        
+        if tex_normal:
+            bump_blender = create_node('rsBumpBlenderShaderNode', origin[0], origin[1])
+            bump_blender.inputs[4].default_value = 1 # Blend Weight Layer 0
+            bump_blender.inputs[11].default_value = True # Additive Mode
+            
+            link_node(bump.outputs[0], rs_bump.inputs[3])
+            link_node(rs_bump.outputs[0], bump_blender.inputs[3]) # Bump to Layer 0
+            link_node(rs_nbump.outputs[0], bump_blender.inputs[1]) # Normal to Input
+            link_node(bump_blender.outputs[0], rsMaterial.inputs[57]) # BumpBlender to Standard
+        else:
+            link_node(rs_bump.outputs[0], rsMaterial.inputs[57])
+            link_node(bump.outputs[0], rs_bump.inputs[3])
+            
+        if props.scalar_node:
+            link_node(matVector.outputs[0], bump.inputs[12])
+    
+        origin[1] -= 300
+        
+    # CREATE ALPHA
+    rsOutput = create_node('RedshiftMaterialOutputNode', origin[0]+400, 0)
+        
+    if tex_alpha or props.color_is_alpha:
+        alpha = create_node('rsSpriteShaderNode', origin[0]+300, 0)
+        
+        if props.color_is_alpha:
+            tex = load_file(bpy.path.abspath(tex_base_color))
+            alpha.inputs[3].default_value = tex
+        else:
+            tex = load_file(bpy.path.abspath(tex_alpha))
+            alpha.inputs[3].default_value = tex
+
+        alpha.inputs[2].default_value = False # Expand Stencil Dropdown
+        alpha.label = "Alpha"
+        rsOutput.location[0] += 200
+        alpha.inputs[4].default_value = props.uv_map
+
+        if props.color_is_alpha:
+            alpha.inputs[5].default_value = '1'
+        else:
+            alpha.inputs[5].default_value = props.alpha_type
+        
+        link_node(rsMaterial.outputs[0], alpha.inputs[1])
+        link_node(alpha.outputs[0], rsOutput.inputs[0])
+    else:
+        link_node(rsMaterial.outputs[0], rsOutput.inputs[0])
+
+    # CREATE EMISSION
+    if tex_emission:
+        rsMaterial.inputs[51].default_value = False # Open RS Emission Dropdown
+        emission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_emission))
+        tex.colorspace_settings.name = 'Non-Color'
+        emission.inputs[2].default_value = tex
+        emission.inputs[0].default_value = False # Expand General Dropdown
+        emission.label = "Emission"
+        link_node(emission.outputs[0], rsMaterial.inputs[52])
+        rsMaterial.inputs[53].default_value = 1.0
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], emission.inputs[12])
+        
+    rsMaterial.location[1] = origin[1]*0.25
+
+    # CREATE DISPLACEMENT
+    if tex_displacement:
+        rsMaterial.inputs[54].default_value = False # Open RS Geometry Dropdown
+        rs_disp = create_node('rsDisplacementShaderNode', origin[0], origin[1])
+        displacement = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
+        origin[1] -= 300
+        
+        tex = load_file(bpy.path.abspath(tex_displacement))
+        tex.colorspace_settings.name = 'Non-Color'
+        displacement.inputs[2].default_value = tex
+        displacement.inputs[0].default_value = False
+        displacement.label = "Displacement"
+        
+        rs_disp.inputs[10].default_value = -1.0 # New Range Min
+        rs_disp.inputs[6].default_value = props.uv_map
+        bpy.context.active_object.rsTessDisp.GetTessellationEnabled = True
+        bpy.context.active_object.rsTessDisp.GetDisplacementEnabled = True
+        bpy.context.active_object.rsTessDisp.GetDisplacementScale = 1.0 # As of 3515 displacement wont show in the IPR unless its value is changed again. This is an attempt at fixing the problem
+        rs_disp.inputs[2].default_value = props.displacement_scale # Set displacement scale from user input
+        
+        if props.normal_type == "1":
+            rs_disp.inputs[4].default_value = "2"
+        
+        link_node(rs_disp.outputs[0], rsOutput.inputs[1])
+        link_node(displacement.outputs[0], rs_disp.inputs[1])
+        
+        if props.scalar_node:
+            link_node(matVector.outputs[0], displacement.inputs[12])
+    
+    dprint("---- BUILD COMPLETE ----")
       
 class RMBpanel_create(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "Create"
+    bl_label = "Build from Files"
     bl_idname = "NODE_PT_rmb_create"
     bl_space_type = 'NODE_EDITOR'
     bl_region_type = 'UI'
@@ -693,9 +753,10 @@ class RMBpanel_create(bpy.types.Panel):
     
     def draw_header(self, context):
         layout = self.layout
-        layout.label(text="",icon="ADD")
+        layout.label(text="",icon="IMAGE_DATA")
         
     def draw(self, context):
+        
         layout = self.layout
         scene = context.scene
         
@@ -731,6 +792,86 @@ class RMBpanel_create(bpy.types.Panel):
 
             for prop in material_dir_group:
                     layout.prop(props, prop)
+
+class RMBpanel_from_nodes(bpy.types.Panel):
+    """Creates a Panel in the scene context of the properties editor"""
+    bl_label = "Build from Nodes"
+    bl_idname = "NODE_PT_rmb_from_nodes"
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "RMB"
+
+    @classmethod
+    def poll(cls, context):
+        space = context.space_data
+        if space.node_tree is not None and space.node_tree.library is None and space.tree_type == "ShaderNodeTree":
+            return True
+        return False
+    
+    def draw_header(self, context):
+        layout = self.layout
+        layout.label(text="",icon="NODE_SEL")
+        
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        if not rsEnabled():
+            layout.label(text="Redshift is not enabled", icon="ERROR")
+            
+        else:
+            props = scene.RMB
+            
+            #####
+            v = False
+            convert_items = []
+            brow = layout.row()
+            brow.scale_y = 1.5
+            brow.operator("node.rmb_from_nodes")
+            erres = layout.column()
+            layout.separator()
+            grow = layout.row()
+            for node in bpy.context.active_object.active_material.node_tree.nodes:
+                if node.bl_idname == "ShaderNodeTexImage":
+                    if node.image:
+                        row = layout.row()
+                        row.label(text=bpy.path.basename(node.image.filepath), icon="IMAGE_DATA")
+                        row.prop(node.image, "texture_type", text="")
+                        convert_items.append((node.image.filepath, node.image.texture_type))
+                        v = True
+                        
+            if v:
+                grow.operator("node.rmb_guess")
+            
+            w = False
+            for type in material_group:
+                if str(convert_items).count(type) >= 2:
+                    w = True
+                    break
+                        
+            if w:
+                brow.enabled = False
+                erres.label(text="Cannot specify same type for multiple textures", icon="ERROR")
+                
+            if not v: 
+                brow.enabled = False
+                erres.label(text="Requires one valid Image Node texture", icon="ERROR")
+
+            if not props.uv_map in bpy.context.active_object.data.uv_layers:
+                brow.enabled = False
+                erres.label(text="Selected UV Map does not exist", icon="ERROR")
+            
+            g = False
+            r = False
+            for node in bpy.context.active_object.active_material.node_tree.nodes:
+                if node.bl_idname == "ShaderNodeTexImage":
+                    if node.image.texture_type == "gloss":
+                        g = True
+                    if node.image.texture_type == "rough":
+                        r = True
+            
+            if r and g:
+                erres.label(text="Roughness will take precedence of Gloss", icon="INFO")
             
 class RMBpanel_settings(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
@@ -759,9 +900,17 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.label(text="Redshift is not enabled",icon="ERROR")
         else:
             props = scene.RMB
+            layout.prop(props,"delete_before_build")
+            
+            layout.separator(factor=1)
             layout.prop(props,"scalar_node")
             layout.prop(props,"image_node")
             layout.prop(props,"correct_node")
+            
+            layout.separator(factor=0.3)
+            
+            layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
+            layout.prop(props,"use_udim")
             
             layout.separator(factor=0.3)
             
@@ -777,15 +926,6 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.prop(props,"displacement_scale")
             
             layout.separator(factor=0.3)
-            
-            layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
-            layout.prop(props,"use_udim")
-            
-            layout.separator(factor=0.3)
-            
-            layout.prop(props,"delete_before_build")
-            
-            layout.separator(factor=1)
             
             layout.label(text="Texture Keywords:")
             layout.prop(props, "base_color")
@@ -806,7 +946,7 @@ class RMBpanel_settings(bpy.types.Panel):
             
             layout.prop(props, "debug_mode")
             
-classes = (RMBpanel_create,RMBpanel_settings,RMB_props,RMB_build)
+classes = (RMBpanel_create,RMBpanel_from_nodes,RMBpanel_settings,RMB_props,RMB_build,RMB_from_nodes,RMB_guess)
 
 def register():
     for cls in classes:
@@ -814,11 +954,24 @@ def register():
         
     bpy.types.Scene.RMB = bpy.props.PointerProperty(type=RMB_props)
 
+    mat_items = []
+    for i,item in enumerate(material_group):
+        mat_items.append((item, item,"", i))
+        
+    bpy.types.Image.texture_type = bpy.props.EnumProperty(
+        name="Texture Type",
+        description="The type of texture used for this setup.",
+        items =  mat_items,
+        default = 0
+    )
+
 def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
         
     del bpy.types.Scene.RMB
+    del bpy.types.Image.texture_type
+    del bpy.types.Image.texture_bool
 
 if __name__ == "__main__":
     register()
