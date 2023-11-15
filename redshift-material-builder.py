@@ -626,7 +626,7 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         rs_bump = create_node('rsBumpMapShaderNode', origin[0]-400, origin[1])
         bump = create_node('rsTextureSamplerShaderNode', origin[0]-800, origin[1])
         
-        tex = load_file(bpy.path.abspath(tex_normal))
+        tex = load_file(bpy.path.abspath(tex_bump))
         tex.colorspace_settings.name = 'Non-Color'
         bump.inputs[2].default_value = tex
         bump.inputs[0].default_value = False # Expand General Dropdown
