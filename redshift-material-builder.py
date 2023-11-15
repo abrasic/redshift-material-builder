@@ -453,13 +453,7 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         base_color = create_node('rsTextureSamplerShaderNode', origin[0]-coloffset, origin[1])
         
         tex = load_file(bpy.path.abspath(tex_base_color)) # Load texture to file
-        
-        try:
-            tex.colorspace_settings.name = props.color_space
-        except TypeError:
-            self.report({'INFO'}, props.color_space + " not found, using sRGB")
-            tex.colorspace_settings.name = "sRGB"
-            
+        tex.colorspace_settings.name = props.color_space
         
         if props.image_node:
             viewport_node = create_node('ShaderNodeTexImage', origin[0]-coloffset-1600, origin[1])
