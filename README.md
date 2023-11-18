@@ -5,7 +5,7 @@
 
 RMB is a small utility script that creates basic PBR setups with only a couple clicks. Instead of wasting time by converting your cycles node trees into Redshift by hand, get a jump start by using RMB.
 
-Read the docs [here](https://github.com/abrasic/redshift-material-builder/wiki/Settings).
+Read the docs [here](https://github.com/abrasic/redshift-material-builder/wiki/).
 
 ## Supported Maps
 Diffuse, AO, Metallic, Specular, Gloss, Roughness, Transmission, SSS, Normal, Bump, Emission, Alpha, Displacement
