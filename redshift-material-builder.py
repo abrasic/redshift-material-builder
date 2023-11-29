@@ -12,7 +12,7 @@ bl_info = {
     "name": "Redshift Material Builder",
     "description": "Create quick PBR materials with Redshift",
     "author": "Abrasic",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (3, 5, 0),
     "location": "Shader Editor > N-Panel > RMB",
     "support": "COMMUNITY",
