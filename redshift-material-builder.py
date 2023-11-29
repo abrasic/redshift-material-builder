@@ -569,7 +569,7 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         transmission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
         origin[1] -= 300
         
-        tex = load_file(bpy.path.abspath(tex_transmission))
+        tex = load_file(bpy.path.abspath(tex_rough))
         tex.colorspace_settings.name = 'Non-Color' 
         transmission.inputs[2].default_value = tex
         transmission.inputs[0].default_value = False # Expand General Dropdown
@@ -950,11 +950,23 @@ def register():
 
     mat_items = []
     for i,item in enumerate(material_group):
-        mat_items.append((item, item,"", i))
+        display = item
+        
+        if display == "base_color":
+            display = "Base Color"
+        elif display == "sss":
+            display = "SSS"
+        elif display == "ao":
+            display = "AO"
+        else:
+            display = display.capitalize()
+        mat_items.append((item, display,"", i))
+        
+    mat_items.append(("ignore", "Ignore", "Textures marked as ignored will not be used in the built material", "PANEL_CLOSE", len(mat_items)))
         
     bpy.types.Image.texture_type = bpy.props.EnumProperty(
         name="Texture Type",
-        description="The type of texture used for this setup.",
+        description="The type of texture used for this setup",
         items =  mat_items,
         default = 0
     )
