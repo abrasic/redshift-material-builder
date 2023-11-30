@@ -569,7 +569,7 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         transmission = create_node('rsTextureSamplerShaderNode', origin[0]-400, origin[1])
         origin[1] -= 300
         
-        tex = load_file(bpy.path.abspath(tex_rough))
+        tex = load_file(bpy.path.abspath(tex_transmission))
         tex.colorspace_settings.name = 'Non-Color' 
         transmission.inputs[2].default_value = tex
         transmission.inputs[0].default_value = False # Expand General Dropdown
