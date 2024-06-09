@@ -12,7 +12,7 @@ bl_info = {
     "name": "Redshift Material Builder",
     "description": "Create quick PBR materials with Redshift",
     "author": "Abrasic",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (3, 5, 0),
     "location": "Shader Editor > N-Panel > RMB",
     "support": "COMMUNITY",
@@ -21,6 +21,9 @@ bl_info = {
 
 material_group = ["base_color","ao","metallic","specular","gloss","rough","transmission","sss","normal","bump","emission","alpha", "displacement"]
 material_dir_group = ["dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"]
+
+material_dupes = []
+image_node_matches = []
 
 class RMB_props(bpy.types.PropertyGroup):
     
@@ -325,6 +328,8 @@ class RMB_guess(bpy.types.Operator):
     def execute(self, context):
         props = bpy.context.scene.RMB
         props.uv_map = bpy.context.active_object.data.uv_layers.active.name
+        global image_node_matches
+        image_node_matches = []
         
         for node in bpy.context.active_object.active_material.node_tree.nodes:
             if node.bl_idname == "ShaderNodeTexImage":
@@ -333,12 +338,19 @@ class RMB_guess(bpy.types.Operator):
                     for i, mat in enumerate(material_group):
                         matcher = getattr(props, mat)
                         queries = matcher.split()
-                        
+                    
                         for q in queries:
                             texture = bpy.path.basename(node.image.filepath)
                             if search(q, texture, IGNORECASE):
                                 setattr(node.image, "texture_type", mat)
-                                break
+                                dprint("Matched: "+str(node.image.name))
+                                image_node_matches.append(node.image.name)
+                            else:
+                                if node.image.name in image_node_matches:
+                                    break
+                                continue
+                            break
+                        
         return {"FINISHED"}
 
 def create_node(id, x=0, y=0):
@@ -405,9 +417,7 @@ class RMB_from_nodes(bpy.types.Operator):
             if node.bl_idname == "ShaderNodeTexImage":
                 if node.image:
                     for i,e in enumerate(possible_textures):
-                        print(possible_textures[i][0])
                         if possible_textures[i][0] == node.image.texture_type:
-                            print("OK!")
                             possible_textures[i] = (possible_textures[i][0], bpy.path.abspath(node.image.filepath))
                 
         possible_textures = tuple(possible_textures)
@@ -809,15 +819,17 @@ class RMBpanel_from_nodes(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        
+
         if not rsEnabled():
             layout.label(text="Redshift is not enabled", icon="ERROR")
             
         else:
+            global image_node_matches
             props = scene.RMB
             
             #####
             v = False
+            count = 0
             convert_items = []
             brow = layout.row()
             brow.scale_y = 1.5
@@ -825,14 +837,26 @@ class RMBpanel_from_nodes(bpy.types.Panel):
             erres = layout.column()
             layout.separator()
             grow = layout.row()
+            nomatch = layout.row()
             for node in bpy.context.active_object.active_material.node_tree.nodes:
                 if node.bl_idname == "ShaderNodeTexImage":
                     if node.image:
-                        row = layout.row()
-                        row.label(text=bpy.path.basename(node.image.filepath), icon="IMAGE_DATA")
-                        row.prop(node.image, "texture_type", text="")
-                        convert_items.append((node.image.filepath, node.image.texture_type))
-                        v = True
+                        
+                        n = []
+                        for k in convert_items:
+                            n.append(k[0])
+
+                        if node.image.filepath not in n:
+                            convert_items.append((node.image.filepath, node.image.texture_type))
+                            count += 1
+                            row = layout.row()
+                            if node.image.name in image_node_matches:
+                                row.label(text=bpy.path.basename(node.image.filepath), icon="OUTLINER_OB_IMAGE")
+                            else:
+                                row.label(text=bpy.path.basename(node.image.filepath), icon="IMAGE_DATA")
+                            
+                            row.prop(node.image, "texture_type", text="")
+                            v = True
                         
             if v:
                 grow.operator("node.rmb_guess")
@@ -840,12 +864,13 @@ class RMBpanel_from_nodes(bpy.types.Panel):
             w = False
             for type in material_group:
                 if str(convert_items).count(type) >= 2:
+                    material_dupes.append(type)
                     w = True
                     break
-                        
+
             if w:
                 brow.enabled = False
-                erres.label(text="Cannot specify same type for multiple textures", icon="ERROR")
+                erres.label(text="All image nodes must have a unique texture type", icon="ERROR")
                 
             if not v: 
                 brow.enabled = False
