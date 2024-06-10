@@ -22,7 +22,6 @@ bl_info = {
 material_group = ["base_color","ao","metallic","specular","gloss","rough","transmission","sss","normal","bump","emission","alpha", "displacement"]
 material_dir_group = ["dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"]
 
-material_dupes = []
 image_node_matches = []
 
 class RMB_props(bpy.types.PropertyGroup):
@@ -862,9 +861,12 @@ class RMBpanel_from_nodes(bpy.types.Panel):
                 grow.operator("node.rmb_guess")
             
             w = False
+            to = []
+            for item in convert_items:
+                to.append(item[1])
+
             for type in material_group:
-                if str(convert_items).count(type) >= 2:
-                    material_dupes.append(type)
+                if str(to).count(type) >= 2:
                     w = True
                     break
 
