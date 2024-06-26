@@ -1,5 +1,6 @@
 import bpy, os
 from re import (search, IGNORECASE)
+from bpy_extras.io_utils import ImportHelper
 
 from bpy.props import (
     EnumProperty,
@@ -12,7 +13,7 @@ bl_info = {
     "name": "Redshift Material Builder",
     "description": "Create quick PBR materials with Redshift",
     "author": "Abrasic",
-    "version": (1, 3),
+    "version": (1, 4),
     "blender": (3, 5, 0),
     "location": "Shader Editor > N-Panel > RMB",
     "support": "COMMUNITY",
@@ -21,7 +22,6 @@ bl_info = {
 
 material_group = ["base_color","ao","metallic","specular","gloss","rough","transmission","sss","normal","bump","emission","alpha", "displacement"]
 material_dir_group = ["dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"]
-
 image_node_matches = []
 
 class RMB_props(bpy.types.PropertyGroup):
@@ -44,80 +44,67 @@ class RMB_props(bpy.types.PropertyGroup):
     dir_color: StringProperty (
         name="Base Color",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_ao: StringProperty (
         name="AO",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_metallic: StringProperty (
         name="Metallic",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_specular: StringProperty (
         name="Specular",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_gloss: StringProperty (
         name="Gloss",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_rough: StringProperty (
         name="Roughness",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_transmission: StringProperty (
         name="Transmission",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_sss: StringProperty (
         name="SSS",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
         
     dir_normal: StringProperty (
         name="Normal",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
 
     dir_bump: StringProperty (
         name="Bump",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
 
     dir_emission: StringProperty (
         name="Emission",
         description="",
-        default="",
-        subtype = "FILE_PATH")  
+        default="")  
 
     dir_alpha: StringProperty (
         name="Alpha",
         description="",
-        default="",
-        subtype = "FILE_PATH")   
+        default="")   
         
     dir_displacement: StringProperty (
         name="Displacement",
         description="",
-        default="",
-        subtype = "FILE_PATH")   
+        default="")   
         
     ## Settings
 
@@ -152,7 +139,7 @@ class RMB_props(bpy.types.PropertyGroup):
         color_items.append((space.name, space.name, "", i))
     
     color_space: EnumProperty(
-        name="Diffuse Color Space",
+        name="Diffuse",
         description="Sets the color space for your color texture",
         items=color_items,
         default='sRGB'
@@ -170,6 +157,13 @@ class RMB_props(bpy.types.PropertyGroup):
         description="Sets the Sprite node to this input type for its alpha maps",
         items=[('0', "From Color Intensity", "",),('1', "From Alpha", ""),],
         default=1
+    )
+
+    sss_map_input: EnumProperty(
+        name="SSS Input",
+        description="Where your Subsurface map will connect to by default",
+        items=[('0', "Weight", "",),('1', "Color", ""),('2', "Weight & Color", ""),],
+        default=0
     )
     
     normal_scale: FloatProperty(
@@ -289,7 +283,6 @@ def rsEnabled():
 def updateList():
     """Updates texture list which filters based on image type and user-specified filter. This should only be called after a filter or target folder change"""
     props = bpy.context.scene.RMB
-    props.uv_map = bpy.context.active_object.data.uv_layers.active.name
     
     for i, c in enumerate(material_dir_group):
         setattr(props, material_dir_group[i], "")
@@ -326,7 +319,6 @@ class RMB_guess(bpy.types.Operator):
 
     def execute(self, context):
         props = bpy.context.scene.RMB
-        props.uv_map = bpy.context.active_object.data.uv_layers.active.name
         global image_node_matches
         image_node_matches = []
         
@@ -396,6 +388,10 @@ class RMB_build(bpy.types.Operator):
     
     def execute(self, context):
         props = bpy.context.scene.RMB
+
+        if not props.uv_map in bpy.context.active_object.data.uv_layers:
+            props.uv_map = bpy.context.active_object.data.uv_layers.active.name
+            
         # material_dir_group = "dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"
         build_material(tex_base_color=props.dir_color,tex_ao=props.dir_ao,tex_metallic=props.dir_metallic,tex_specular=props.dir_specular,tex_gloss=props.dir_gloss,tex_rough=props.dir_rough,tex_transmission=props.dir_transmission,tex_sss=props.dir_sss,tex_normal=props.dir_normal,tex_bump=props.dir_bump,tex_emission=props.dir_emission,tex_alpha=props.dir_alpha,tex_displacement=props.dir_displacement)
         return({"FINISHED"})
@@ -500,8 +496,8 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
 
             link_node(ao.outputs[0], base_color.inputs[16]) # Connect to Base Color Multiplier
         else: # Use AO as a base color instead
-            link_node(ao.outputs[0], rsMaterial.inputs[2]) # Connect to Standard Metail Base Color
-            tex.colorspace_settings.name = 'sRGB' # Change space
+            link_node(ao.outputs[0], rsMaterial.inputs[2]) # Connect to Standard Material Base Color
+            tex.colorspace_settings.name = props.color_space # Change space
             
         if props.scalar_node:
             link_node(matVector.outputs[0], ao.inputs[12])
@@ -599,7 +595,14 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         sss.inputs[2].default_value = tex
         sss.inputs[0].default_value = False # Expand General Dropdown
         sss.label = "SSS"
-        link_node(sss.outputs[0], rsMaterial.inputs[27])
+        if int(props.sss_map_input) == 0 or int(props.sss_map_input) == 2:
+            dprint("Linking SSS Weight")
+            link_node(sss.outputs[0], rsMaterial.inputs[27]) # Weight
+        if int(props.sss_map_input) >= 1:
+            dprint("Linking SSS Color")
+            link_node(sss.outputs[0], rsMaterial.inputs[26]) # Color
+            rsMaterial.inputs[27].default_value = 1.0
+
         
         if props.scalar_node:
             link_node(matVector.outputs[0], sss.inputs[12])
@@ -736,8 +739,41 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         
         if props.scalar_node:
             link_node(matVector.outputs[0], displacement.inputs[12])
-    
+
+    bpy.ops.object.editmode_toggle()
+    bpy.ops.object.editmode_toggle() # 3602: For some reason Redshift will not show IPR normals/displacement on newly-built materials until the object goes thru Edit Mode atleast once(???)
+
     dprint("---- BUILD COMPLETE ----")
+
+class FileSelector(ImportHelper):
+    filepath : StringProperty(
+        name="File Path",
+        description="Filepath used for importing the file",
+        maxlen=1024,
+        default="")
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+    
+class RMB_OT_LoadDirectory(bpy.types.Operator, FileSelector):
+    bl_idname = "rmb.load_texture"
+    bl_label = "Load Texture File"
+    bl_description = "Load texture from file"
+    bl_options = {'UNDO'}
+
+    texture_target : StringProperty()
+    
+    def execute(self, context):
+        setattr(bpy.context.scene.RMB, self.texture_target, self.filepath)
+        dprint(self.filepath + " was set for texture type " + str(self.texture_target))
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        scene = bpy.context.scene
+        self.properties.filepath = scene.RMB.base_dir
+        dprint("Invoking file explorer, the path to load to is "+str(os.path.dirname(scene.RMB.base_dir)))
+        return FileSelector.invoke(self, context, event)
       
 class RMBpanel_create(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
@@ -785,16 +821,21 @@ class RMBpanel_create(bpy.types.Panel):
                 row.enabled = False
                 layout.label(text="Specify at least one texture", icon="ERROR")
 
-            if not props.uv_map in bpy.context.active_object.data.uv_layers:
-                layout.label(text="Selected UV Map does not exist", icon="ERROR")
+            if len(bpy.context.active_object.data.uv_layers) == 0:
                 row.enabled = False
+                layout.label(text="No UV maps exist on this object", icon="ERROR")
+            elif not props.uv_map in bpy.context.active_object.data.uv_layers:
+                layout.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
+
             if getattr(context.scene.RMB, material_dir_group[4]) and getattr(context.scene.RMB, material_dir_group[5]):
-                layout.label(text="Roughness will take precedence of Gloss", icon="INFO")
+                layout.label(text="Roughness will take precedence over Gloss", icon="INFO")
     
             layout.separator()
 
             for prop in material_dir_group:
-                    layout.prop(props, prop)
+                    row = layout.row()
+                    row.prop(props, prop)
+                    row.operator("rmb.load_texture",text="",icon="FILE_FOLDER").texture_target = str(prop)
 
 class RMBpanel_from_nodes(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
@@ -878,9 +919,11 @@ class RMBpanel_from_nodes(bpy.types.Panel):
                 brow.enabled = False
                 erres.label(text="Requires one valid Image Node texture", icon="ERROR")
 
-            if not props.uv_map in bpy.context.active_object.data.uv_layers:
+            if len(bpy.context.active_object.data.uv_layers) == 0:
                 brow.enabled = False
-                erres.label(text="Selected UV Map does not exist", icon="ERROR")
+                erres.label(text="No UV maps exist on this object", icon="ERROR")
+            elif not props.uv_map in bpy.context.active_object.data.uv_layers:
+                erres.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
             
             g = False
             r = False
@@ -921,53 +964,72 @@ class RMBpanel_settings(bpy.types.Panel):
             layout.label(text="Redshift is not enabled",icon="ERROR")
         else:
             props = scene.RMB
-            layout.prop(props,"delete_before_build")
             
-            layout.separator(factor=1)
-            layout.prop(props,"scalar_node")
-            layout.prop(props,"image_node")
-            layout.prop(props,"correct_node")
+            nodebox = layout.box()
+            nodebox.label(text="Node", icon="NODE")
+            nodebox.prop(props,"scalar_node")
+            nodebox.prop(props,"image_node")
+            nodebox.prop(props,"correct_node")
+            nodebox.separator(factor=0.5)
+            nodebox.prop(props,"delete_before_build")
+            
+            layout.separator(factor=0.3)
+
+            uvbox = layout.box()
+            uvrow = uvbox.row()
+            uvleft = uvrow.split()
+            uvleft.scale_x = 0.9
+            uvleft.label(text="UV", icon='GROUP_UVS')
+            uvrow.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", text="",icon="BLANK1")
+            uvrow.prop(props,"use_udim",text="UDIM")
             
             layout.separator(factor=0.3)
             
-            layout.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", icon='GROUP_UVS')
-            layout.prop(props,"use_udim")
+            inputbox = layout.box()
+            inputbox.label(text="Texture",icon="TEXTURE")
+            colrow = inputbox.row()
+            colrow.prop(props,"color_space",text="Diffuse")
+            colrow.prop(props,"color_is_alpha")
+            inputbox.prop(props,"normal_type",text="Normal")
+            inputbox.prop(props,"sss_map_input",text="SSS")
+            inputbox.prop(props,"alpha_type",text="Alpha")
+            
+            layout.separator(factor=0.3)
+
+            scalebox = layout.box()
+            scalebox.label(text="Scale",icon="FULLSCREEN_ENTER")
+            scaleheader = scalebox.row()
+            scaleheader.label(text="Normal")
+            scaleheader.label(text="Bump")
+            scaleheader.label(text="Displacement")
+            scalerow = scalebox.row()
+            scalerow.prop(props,"normal_scale",text="")
+            scalerow.prop(props,"bump_scale",text="")
+            scalerow.prop(props,"displacement_scale",text="")
             
             layout.separator(factor=0.3)
             
-            layout.prop(props,"color_space")
-            layout.prop(props,"normal_type")
-            layout.prop(props,"alpha_type")
-            layout.prop(props,"color_is_alpha")
-            
-            layout.separator(factor=0.3)
-            
-            layout.prop(props,"normal_scale")
-            layout.prop(props,"bump_scale")
-            layout.prop(props,"displacement_scale")
-            
-            layout.separator(factor=0.3)
-            
-            layout.label(text="Texture Keywords:")
-            layout.prop(props, "base_color")
-            layout.prop(props, "ao")
-            layout.prop(props, "metallic")
-            layout.prop(props, "specular")
-            layout.prop(props, "gloss")
-            layout.prop(props, "rough")
-            layout.prop(props, "transmission")
-            layout.prop(props, "sss")
-            layout.prop(props, "normal")
-            layout.prop(props, "bump")
-            layout.prop(props, "emission")
-            layout.prop(props, "alpha")
-            layout.prop(props, "displacement")
+            keybox = layout.box()
+            keybox.label(text="Keywords",icon="TEXT")
+            keybox.prop(props, "base_color")
+            keybox.prop(props, "ao")
+            keybox.prop(props, "metallic")
+            keybox.prop(props, "specular")
+            keybox.prop(props, "gloss")
+            keybox.prop(props, "rough")
+            keybox.prop(props, "transmission")
+            keybox.prop(props, "sss")
+            keybox.prop(props, "normal")
+            keybox.prop(props, "bump")
+            keybox.prop(props, "emission")
+            keybox.prop(props, "alpha")
+            keybox.prop(props, "displacement")
             
             layout.separator(factor=5)
             
             layout.prop(props, "debug_mode")
             
-classes = (RMBpanel_create,RMBpanel_from_nodes,RMBpanel_settings,RMB_props,RMB_build,RMB_from_nodes,RMB_guess)
+classes = (RMBpanel_create,RMBpanel_from_nodes,RMBpanel_settings,RMB_props,RMB_build,RMB_from_nodes,RMB_guess,RMB_OT_LoadDirectory)
 
 def register():
     for cls in classes:
