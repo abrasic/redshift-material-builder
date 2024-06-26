@@ -1,5 +1,5 @@
 # Redshift Material Builder for Blender
-> Requires [Redshift Renderer](https://www.maxon.net/redshift) to use. Works as of RS 3.5.20 on Blender 4.0.1
+> Requires [Redshift Renderer](https://www.maxon.net/redshift) to use. Works as of RS 3.6.03 on Blender 4.1.1
 
 > **This is a FREE product. However, you can still support the developer by [purchasing the product on Gumroad](https://box.gumroad.com/l/rmb) if you found it useful.**
 
