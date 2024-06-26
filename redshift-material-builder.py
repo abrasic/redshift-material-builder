@@ -490,7 +490,7 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         ao.inputs[0].default_value = False # Expand General Dropdown
         ao.label = "AO"
         
-        if base_color:
+        if tex_base_color:
             ao.location = (ao.location[0]-400, ao.location[1])
             base_color.inputs[15].default_value = False # Opens "Adjust" dropdown for Base Color node
 
