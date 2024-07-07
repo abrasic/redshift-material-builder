@@ -13,7 +13,7 @@ bl_info = {
     "name": "Redshift Material Builder",
     "description": "Create quick PBR materials with Redshift",
     "author": "Abrasic",
-    "version": (1, 4),
+    "version": (1, 5),
     "blender": (3, 5, 0),
     "location": "Shader Editor > N-Panel > RMB",
     "support": "COMMUNITY",
@@ -23,6 +23,7 @@ bl_info = {
 material_group = ["base_color","ao","metallic","specular","gloss","rough","transmission","sss","normal","bump","emission","alpha", "displacement"]
 material_dir_group = ["dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"]
 image_node_matches = []
+conflicts = []
 
 class RMB_props(bpy.types.PropertyGroup):
     
@@ -389,9 +390,12 @@ class RMB_build(bpy.types.Operator):
     def execute(self, context):
         props = bpy.context.scene.RMB
 
-        if not props.uv_map in bpy.context.active_object.data.uv_layers:
-            props.uv_map = bpy.context.active_object.data.uv_layers.active.name
-            
+        try:
+            if not props.uv_map in bpy.context.active_object.data.uv_layers:
+                props.uv_map = bpy.context.active_object.data.uv_layers.active.name
+        except AttributeError:
+                props.uv_map = "UVMap"
+        
         # material_dir_group = "dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"
         build_material(tex_base_color=props.dir_color,tex_ao=props.dir_ao,tex_metallic=props.dir_metallic,tex_specular=props.dir_specular,tex_gloss=props.dir_gloss,tex_rough=props.dir_rough,tex_transmission=props.dir_transmission,tex_sss=props.dir_sss,tex_normal=props.dir_normal,tex_bump=props.dir_bump,tex_emission=props.dir_emission,tex_alpha=props.dir_alpha,tex_displacement=props.dir_displacement)
         return({"FINISHED"})
@@ -404,6 +408,7 @@ class RMB_from_nodes(bpy.types.Operator):
     def execute(self, context):
         # Initialize texture array. [0] is type where [1] is file path
         possible_textures = []
+        unlinked = []
         for t in material_group:
             possible_textures.append((t,None))
         
@@ -412,16 +417,23 @@ class RMB_from_nodes(bpy.types.Operator):
             if node.bl_idname == "ShaderNodeTexImage":
                 if node.image:
                     for i,e in enumerate(possible_textures):
+                        if node.image.texture_type == "unlinked":
+                            dprint("Unlinked texture")
+                            unlinked.append(node.image.filepath)
+                            break
                         if possible_textures[i][0] == node.image.texture_type:
                             possible_textures[i] = (possible_textures[i][0], bpy.path.abspath(node.image.filepath))
+
+
+
                 
         possible_textures = tuple(possible_textures)
         dprint(f"Textures to build from: {possible_textures}")
         # material_dir_group = "dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"
-        build_material(tex_base_color=possible_textures[0][1],tex_ao=possible_textures[1][1],tex_metallic=possible_textures[2][1],tex_specular=possible_textures[3][1],tex_gloss=possible_textures[4][1],tex_rough=possible_textures[5][1],tex_transmission=possible_textures[6][1],tex_sss=possible_textures[7][1],tex_normal=possible_textures[8][1],tex_bump=possible_textures[9][1],tex_emission=possible_textures[10][1],tex_alpha=possible_textures[11][1],tex_displacement=possible_textures[12][1])
+        build_material(tex_base_color=possible_textures[0][1],tex_ao=possible_textures[1][1],tex_metallic=possible_textures[2][1],tex_specular=possible_textures[3][1],tex_gloss=possible_textures[4][1],tex_rough=possible_textures[5][1],tex_transmission=possible_textures[6][1],tex_sss=possible_textures[7][1],tex_normal=possible_textures[8][1],tex_bump=possible_textures[9][1],tex_emission=possible_textures[10][1],tex_alpha=possible_textures[11][1],tex_displacement=possible_textures[12][1],unlinks=unlinked)
         return({"FINISHED"})
 
-def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specular=None,tex_gloss=None,tex_rough=None,tex_transmission=None,tex_sss=None,tex_normal=None,tex_bump=None,tex_emission=None,tex_alpha=None,tex_displacement=None):
+def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specular=None,tex_gloss=None,tex_rough=None,tex_transmission=None,tex_sss=None,tex_normal=None,tex_bump=None,tex_emission=None,tex_alpha=None,tex_displacement=None,unlinks=None):
     origin = [0,0]
     mat = bpy.context.active_object.active_material
     mat.use_nodes = True
@@ -448,6 +460,17 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
     
     # CREATE BASE COLOR
     coloffset = 400
+
+    if unlinks:
+        for i, item in enumerate(unlinks):
+            unlinked = create_node('rsTextureSamplerShaderNode', (origin[0]-coloffset)-900, origin[1]-(300*i))
+            
+            tex = load_file(bpy.path.abspath(item)) # Load texture to file
+            tex.colorspace_settings.name = props.color_space
+
+            unlinked.inputs[2].default_value = tex # Set file to node
+            unlinked.inputs[0].default_value = False # Expand General Dropdown
+
     if tex_base_color:
         
         if props.correct_node:
@@ -740,9 +763,10 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
         if props.scalar_node:
             link_node(matVector.outputs[0], displacement.inputs[12])
 
-    bpy.ops.object.editmode_toggle()
-    bpy.ops.object.editmode_toggle() # 3602: For some reason Redshift will not show IPR normals/displacement on newly-built materials until the object goes thru Edit Mode atleast once(???)
-
+    # Weird fix to normals for first-time IPR
+    f = bpy.context.active_object.modifiers.new(name="", type="NODES")
+    bpy.context.active_object.modifiers.remove(f)
+        
     dprint("---- BUILD COMPLETE ----")
 
 class FileSelector(ImportHelper):
@@ -801,7 +825,6 @@ class RMBpanel_create(bpy.types.Panel):
         
         if not rsEnabled():
             layout.label(text="Redshift is not enabled", icon="ERROR")
-            
         else:
             props = scene.RMB
             layout.prop(props, "base_dir")
@@ -821,14 +844,20 @@ class RMBpanel_create(bpy.types.Panel):
                 row.enabled = False
                 layout.label(text="Specify at least one texture", icon="ERROR")
 
-            if len(bpy.context.active_object.data.uv_layers) == 0:
-                row.enabled = False
-                layout.label(text="No UV maps exist on this object", icon="ERROR")
-            elif not props.uv_map in bpy.context.active_object.data.uv_layers:
-                layout.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
+            try:
+                if len(bpy.context.active_object.data.uv_layers) == 0:
+                    row.enabled = False
+                    layout.label(text="No UV maps exist on this object", icon="ERROR")
+                elif not props.uv_map in bpy.context.active_object.data.uv_layers:
+                    layout.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
+            except AttributeError:
+                    pass
 
             if getattr(context.scene.RMB, material_dir_group[4]) and getattr(context.scene.RMB, material_dir_group[5]):
                 layout.label(text="Roughness will take precedence over Gloss", icon="INFO")
+
+            if getattr(context.scene.RMB, material_dir_group[11]) and props.color_is_alpha:
+                layout.label(text="Base Color will override Alpha. You can disable this in Settings", icon="INFO")
     
             layout.separator()
 
@@ -865,6 +894,7 @@ class RMBpanel_from_nodes(bpy.types.Panel):
             
         else:
             global image_node_matches
+            global conflicts
             props = scene.RMB
             
             #####
@@ -878,29 +908,33 @@ class RMBpanel_from_nodes(bpy.types.Panel):
             layout.separator()
             grow = layout.row()
             nomatch = layout.row()
-            for node in bpy.context.active_object.active_material.node_tree.nodes:
-                if node.bl_idname == "ShaderNodeTexImage":
-                    if node.image:
-                        
-                        n = []
-                        for k in convert_items:
-                            n.append(k[0])
-
-                        if node.image.filepath not in n:
-                            convert_items.append((node.image.filepath, node.image.texture_type))
-                            count += 1
-                            row = layout.row()
-                            if node.image.name in image_node_matches:
-                                row.label(text=bpy.path.basename(node.image.filepath), icon="OUTLINER_OB_IMAGE")
-                            else:
-                                row.label(text=bpy.path.basename(node.image.filepath), icon="IMAGE_DATA")
+            try:
+                for node in bpy.context.active_object.active_material.node_tree.nodes:
+                    if node.bl_idname == "ShaderNodeTexImage":
+                        if node.image:
                             
-                            row.prop(node.image, "texture_type", text="")
-                            v = True
-                        
-            if v:
-                grow.operator("node.rmb_guess")
-            
+                            n = []
+                            for k in convert_items:
+                                n.append(k[0])
+
+                            if node.image.filepath not in n:
+                                convert_items.append((node.image.filepath, node.image.texture_type))
+                                count += 1
+                                row = layout.row()
+                                if node.image.name in image_node_matches:
+                                    row.label(text=bpy.path.basename(node.image.filepath), icon="OUTLINER_OB_IMAGE")
+                                else:
+                                    row.label(text=bpy.path.basename(node.image.filepath), icon="IMAGE_DATA")
+
+                                if node.image.texture_type in conflicts:
+                                    row.alert = True
+                                else:
+                                    row.alert = False
+                                yup = row.prop(node.image, "texture_type", text="")
+                                v = True
+            except AttributeError:
+                pass
+
             w = False
             to = []
             for item in convert_items:
@@ -908,8 +942,19 @@ class RMBpanel_from_nodes(bpy.types.Panel):
 
             for type in material_group:
                 if str(to).count(type) >= 2:
-                    w = True
-                    break
+                    w = True        
+                    if type not in conflicts:
+                        conflicts.append(type)
+                else:
+                    try:
+                        conflicts.remove(type)
+                    except ValueError:
+                        pass
+                if len(conflicts) == 0:
+                    w = False
+
+            if v:
+                grow.operator("node.rmb_guess")
 
             if w:
                 brow.enabled = False
@@ -919,23 +964,35 @@ class RMBpanel_from_nodes(bpy.types.Panel):
                 brow.enabled = False
                 erres.label(text="Requires one valid Image Node texture", icon="ERROR")
 
-            if len(bpy.context.active_object.data.uv_layers) == 0:
-                brow.enabled = False
-                erres.label(text="No UV maps exist on this object", icon="ERROR")
-            elif not props.uv_map in bpy.context.active_object.data.uv_layers:
-                erres.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
+            try:
+                if len(bpy.context.active_object.data.uv_layers) == 0:
+                    brow.enabled = False
+                    erres.label(text="No UV maps exist on this object", icon="ERROR")
+                elif not props.uv_map in bpy.context.active_object.data.uv_layers:
+                    erres.label(text="Selected UV Map does not exist, using active instead", icon="INFO")
+            except AttributeError:
+                    pass
             
             g = False
             r = False
-            for node in bpy.context.active_object.active_material.node_tree.nodes:
-                if node.bl_idname == "ShaderNodeTexImage":
-                    if node.image.texture_type == "gloss":
-                        g = True
-                    if node.image.texture_type == "rough":
-                        r = True
+            a = False
+            try:
+                for node in bpy.context.active_object.active_material.node_tree.nodes:
+                    if node.bl_idname == "ShaderNodeTexImage":
+                        if node.image.texture_type == "gloss":
+                            g = True
+                        if node.image.texture_type == "rough":
+                            r = True
+                        if node.image.texture_type == "alpha":
+                            a = True
+            except AttributeError:
+                pass
             
             if r and g:
-                erres.label(text="Roughness will take precedence of Gloss", icon="INFO")
+                erres.label(text="Roughness will take precedence over Gloss", icon="INFO")
+
+            if a and props.color_is_alpha:
+                erres.label(text="Base Color will override Alpha. You can disable this in Settings", icon="INFO")
             
 class RMBpanel_settings(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
@@ -965,35 +1022,21 @@ class RMBpanel_settings(bpy.types.Panel):
         else:
             props = scene.RMB
             
-            nodebox = layout.box()
-            nodebox.label(text="Node", icon="NODE")
-            nodebox.prop(props,"scalar_node")
-            nodebox.prop(props,"image_node")
-            nodebox.prop(props,"correct_node")
-            nodebox.separator(factor=0.5)
-            nodebox.prop(props,"delete_before_build")
-            
-            layout.separator(factor=0.3)
-
-            uvbox = layout.box()
-            uvrow = uvbox.row()
-            uvleft = uvrow.split()
-            uvleft.scale_x = 0.9
-            uvleft.label(text="UV", icon='GROUP_UVS')
-            uvrow.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", text="",icon="BLANK1")
-            uvrow.prop(props,"use_udim",text="UDIM")
-            
-            layout.separator(factor=0.3)
-            
             inputbox = layout.box()
             inputbox.label(text="Texture",icon="TEXTURE")
+            uvrow = inputbox.row()
+            if hasattr(bpy.context.active_object.data, "uv_layers"):
+                uvrow.prop_search(scene.RMB, "uv_map", context.object.data, "uv_layers", text="UV",icon='GROUP_UVS')
+            else:
+                uvrow.label(text="UV: None on object")
+            uvrow.prop(props,"use_udim",text="UDIM")
             colrow = inputbox.row()
             colrow.prop(props,"color_space",text="Diffuse")
             colrow.prop(props,"color_is_alpha")
             inputbox.prop(props,"normal_type",text="Normal")
             inputbox.prop(props,"sss_map_input",text="SSS")
             inputbox.prop(props,"alpha_type",text="Alpha")
-            
+
             layout.separator(factor=0.3)
 
             scalebox = layout.box()
@@ -1006,6 +1049,16 @@ class RMBpanel_settings(bpy.types.Panel):
             scalerow.prop(props,"normal_scale",text="")
             scalerow.prop(props,"bump_scale",text="")
             scalerow.prop(props,"displacement_scale",text="")
+            
+            layout.separator(factor=0.3)
+
+            nodebox = layout.box()
+            nodebox.label(text="Node", icon="NODE")
+            nodebox.prop(props,"scalar_node")
+            nodebox.prop(props,"image_node")
+            nodebox.prop(props,"correct_node")
+            nodebox.separator(factor=0.5)
+            nodebox.prop(props,"delete_before_build")
             
             layout.separator(factor=0.3)
             
@@ -1026,7 +1079,7 @@ class RMBpanel_settings(bpy.types.Panel):
             keybox.prop(props, "displacement")
             
             layout.separator(factor=5)
-            
+
             layout.prop(props, "debug_mode")
             
 classes = (RMBpanel_create,RMBpanel_from_nodes,RMBpanel_settings,RMB_props,RMB_build,RMB_from_nodes,RMB_guess,RMB_OT_LoadDirectory)
@@ -1050,8 +1103,9 @@ def register():
         else:
             display = display.capitalize()
         mat_items.append((item, display,"", i))
-        
-    mat_items.append(("ignore", "Ignore", "Textures marked as ignored will not be used in the built material", "PANEL_CLOSE", len(mat_items)))
+    
+    mat_items.append(("unlinked", "Unlinked", "Unlinked textures will be added to an rsTexture node but will not be connected to anything", "UNLINKED", len(mat_items)))
+    mat_items.append(("ignore", "Ignore", "Textures marked as ignored will not be used in the built material", "PANEL_CLOSE", len(mat_items)+1))
         
     bpy.types.Image.texture_type = bpy.props.EnumProperty(
         name="Texture Type",
