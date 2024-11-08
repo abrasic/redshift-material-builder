@@ -1,4 +1,4 @@
-import bpy, os
+import bpy, addon_utils, os
 from re import (search, IGNORECASE)
 from bpy_extras.io_utils import ImportHelper
 
@@ -24,6 +24,7 @@ material_group = ["base_color","ao","metallic","specular","gloss","rough","trans
 material_dir_group = ["dir_color","dir_ao","dir_metallic","dir_specular","dir_gloss","dir_rough","dir_transmission","dir_sss","dir_normal","dir_bump","dir_emission","dir_alpha", "dir_displacement"]
 image_node_matches = []
 conflicts = []
+rsVersion = (-1, -1, -1)
 
 class RMB_props(bpy.types.PropertyGroup):
     
@@ -276,11 +277,14 @@ def dprint(text):
         print('\x1b[7;36;40m' + '[RMB]' + '\x1b[0m ' + text)
 
 def rsEnabled():
-    for addon in bpy.context.preferences.addons:
-        if addon.module == "redshift":
+    for module in addon_utils.modules():
+        if module.__name__ == 'redshift':
+            global rsVersion
+            rsVersion = module.bl_info.get('version', (-1, -1, -1))
             return True
-    return False
-
+    else:
+        return False
+    
 def updateList():
     """Updates texture list which filters based on image type and user-specified filter. This should only be called after a filter or target folder change"""
     props = bpy.context.scene.RMB
@@ -693,22 +697,37 @@ def build_material(tex_base_color=None,tex_ao=None,tex_metallic=None,tex_specula
     if tex_alpha or props.color_is_alpha:
         alpha = create_node('rsSpriteShaderNode', origin[0]+300, 0)
         
-        if props.color_is_alpha:
-            tex = load_file(bpy.path.abspath(tex_base_color))
-            alpha.inputs[3].default_value = tex
+        if rsVersion >= (2025,0,1):
+            alpha.inputs[6].default_value = props.uv_map
+            alpha.inputs[7].default_value = props.alpha_type
+
+            temp_connection = create_node('rsRSMathAbsColorShaderNode', 9999, 9999)
+            link_node(temp_connection.outputs[0], alpha.inputs[3]) # This connection is temporary since certain properties I need wont show for some reason unless Stencil Shader is connected to anything (???)
+            if props.color_is_alpha:
+                if tex_base_color:
+                    tex = load_file(bpy.path.abspath(tex_base_color))
+                    alpha.inputs[5].default_value = tex
+            else:
+                tex = load_file(bpy.path.abspath(tex_alpha))
+                alpha.inputs[5].default_value = tex
+
+            mat.node_tree.nodes.remove(temp_connection)
+
         else:
-            tex = load_file(bpy.path.abspath(tex_alpha))
-            alpha.inputs[3].default_value = tex
+            alpha.inputs[4].default_value = props.uv_map
+
+            if props.color_is_alpha:
+                tex = load_file(bpy.path.abspath(tex_base_color))
+                alpha.inputs[3].default_value = tex
+                alpha.inputs[5].default_value = '1'
+            else:
+                tex = load_file(bpy.path.abspath(tex_alpha))
+                alpha.inputs[3].default_value = tex
+                alpha.inputs[5].default_value = props.alpha_type
 
         alpha.inputs[2].default_value = False # Expand Stencil Dropdown
         alpha.label = "Alpha"
         rsOutput.location[0] += 200
-        alpha.inputs[4].default_value = props.uv_map
-
-        if props.color_is_alpha:
-            alpha.inputs[5].default_value = '1'
-        else:
-            alpha.inputs[5].default_value = props.alpha_type
         
         link_node(rsMaterial.outputs[0], alpha.inputs[1])
         link_node(alpha.outputs[0], rsOutput.inputs[0])
